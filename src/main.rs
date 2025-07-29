@@ -15,9 +15,12 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 let mut buf = [0; 512];
-                let count = stream.read(&mut buf).unwrap();
-                if count != 0 {
-                    stream.write_all(b"+PONG\r\n").unwrap();
+                loop {
+                    let count = stream.read(&mut buf).unwrap();
+                    if count == 0 {
+                        break;
+                    }
+                    stream.write(b"+PONG\r\n").unwrap();
                 }
             }
             Err(e) => {
