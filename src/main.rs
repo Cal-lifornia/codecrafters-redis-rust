@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, Read, Write},
+    io::{Read, Write},
     net::TcpListener,
 };
 
@@ -16,10 +16,9 @@ fn main() {
             Ok(mut stream) => {
                 let mut buf = [0; 512];
                 let count = stream.read(&mut buf).unwrap();
-                if count == 0 {
-                    break;
+                if count != 0 {
+                    stream.write_all(b"+PONG\r\n").unwrap();
                 }
-                stream.write_all(b"+PONG\r\n").unwrap();
             }
             Err(e) => {
                 println!("error: {}", e);
