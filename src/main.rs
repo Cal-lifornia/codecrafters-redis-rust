@@ -1,6 +1,7 @@
 use std::{
     io::{Read, Write},
     net::TcpListener,
+    thread,
 };
 
 fn main() {
@@ -14,14 +15,18 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                let mut buf = [0; 512];
-                loop {
-                    let count = stream.read(&mut buf).unwrap();
-                    if count == 0 {
-                        break;
+                thread::spawn(move || {
+                    let mut buf = [0; 512];
+                    loop {
+                        if let Ok(count) = stream.read(&mut buf) {
+                            if count == 0 {
+                                break;
+                            } else {
+                                stream.write(b"+PONG\r\n").unwrap();
+                            }
+                        }
                     }
-                    stream.write(b"+PONG\r\n").unwrap();
-                }
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
