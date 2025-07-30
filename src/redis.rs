@@ -55,9 +55,13 @@ where
 {
     match resp::parse(buf) {
         Ok((input, _)) => match input {
-            Resp::Array(contents) => match parse_command(&contents, stream) {
+            Resp::Array(contents) => match parse_command_array(&contents, stream) {
                 Ok(_) => {}
-                Err(e) => Resp::SimpleError(format!("ERR {}", e)).write_to_writer(stream)?,
+                Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
+            },
+            Resp::SimpleString(s) => match parse_command_simple(s, stream) {
+                Ok(_) => {}
+                Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
             },
             _ => Resp::SimpleError("ERR invalid command".to_string()).write_to_writer(stream)?,
         },
@@ -75,14 +79,14 @@ impl Command {
         match self {
             Command::Echo(contents) => match contents.write_to_writer(stream) {
                 Ok(_) => {}
-                Err(e) => return Err(RedisError::Other(e.into())),
+                Err(err) => return Err(RedisError::Other(err.into())),
             },
         };
         Ok(())
     }
 }
 
-fn parse_command<S>(input: &[Resp], stream: &mut S) -> Result<(), RedisError>
+fn parse_command_array<S>(input: &[Resp], stream: &mut S) -> Result<(), RedisError>
 where
     S: std::io::Write + std::io::Read,
 {
@@ -98,6 +102,20 @@ where
             }
             _ => return Err(RedisError::InvalidCommand(command.to_string())),
         };
+    };
+    Ok(())
+}
+
+fn parse_command_simple<S>(input: String, stream: &mut S) -> Result<(), RedisError>
+where
+    S: std::io::Write + std::io::Read,
+{
+    match input.to_lowercase().as_str() {
+        "ping" => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
+            Ok(_) => {}
+            Err(err) => return Err(RedisError::Other(err.into())),
+        },
+        _ => {}
     };
     Ok(())
 }
@@ -131,7 +149,7 @@ mod tests {
         let expected = b"$3\r\nhey\r\n";
         let mut writer = VecDeque::new();
 
-        parse_command(&test_input, &mut writer).unwrap();
+        parse_command_array(&test_input, &mut writer).unwrap();
 
         let mut results = [0u8; 9];
         writer.read_exact(&mut results).unwrap();
