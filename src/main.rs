@@ -1,8 +1,4 @@
-use std::{
-    io::{Read, Write},
-    net::TcpListener,
-    thread,
-};
+use std::{net::TcpListener, thread};
 
 use codecrafters_redis::redis::handle_stream;
 

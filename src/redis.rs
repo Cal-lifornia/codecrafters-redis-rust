@@ -1,6 +1,6 @@
-use std::{borrow::Borrow, fmt::format, io::Read, net::TcpStream};
+use std::borrow::Borrow;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use thiserror::Error;
 
 use crate::resp::{self, Resp, RespError};
@@ -25,14 +25,6 @@ impl From<RespError> for RedisError {
     }
 }
 
-// impl<E> From<E> for RedisError
-// where
-//     E: Into<anyhow::Error>,
-//     Result<(), E>: anyhow::Context<(), E>,
-// {
-//     fn from(value: E) -> Self {}
-// }
-
 pub fn handle_stream<S>(stream: &mut S) -> Result<()>
 where
     S: std::io::Write + std::io::Read,
@@ -55,11 +47,11 @@ where
 {
     match resp::parse(buf) {
         Ok((input, _)) => match input {
-            Resp::Array(contents) => match parse_command_array(&contents, stream) {
+            Resp::Array(contents) => match parse_array_command(&contents, stream) {
                 Ok(_) => {}
                 Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
             },
-            Resp::SimpleString(s) => match parse_command_simple(s, stream) {
+            Resp::SimpleString(s) => match parse_simple_command(s, stream) {
                 Ok(_) => {}
                 Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
             },
@@ -86,7 +78,7 @@ impl Command {
     }
 }
 
-fn parse_command_array<S>(input: &[Resp], stream: &mut S) -> Result<(), RedisError>
+fn parse_array_command<S>(input: &[Resp], stream: &mut S) -> Result<(), RedisError>
 where
     S: std::io::Write + std::io::Read,
 {
@@ -106,10 +98,11 @@ where
     Ok(())
 }
 
-fn parse_command_simple<S>(input: String, stream: &mut S) -> Result<(), RedisError>
+fn parse_simple_command<S>(input: String, stream: &mut S) -> Result<(), RedisError>
 where
     S: std::io::Write + std::io::Read,
 {
+    #[allow(clippy::single_match)]
     match input.to_lowercase().as_str() {
         "ping" => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
             Ok(_) => {}
@@ -122,7 +115,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
+    use std::{collections::VecDeque, io::Read};
 
     use super::*;
 
@@ -149,10 +142,27 @@ mod tests {
         let expected = b"$3\r\nhey\r\n";
         let mut writer = VecDeque::new();
 
-        parse_command_array(&test_input, &mut writer).unwrap();
+        parse_array_command(&test_input, &mut writer).unwrap();
 
         let mut results = [0u8; 9];
         writer.read_exact(&mut results).unwrap();
         assert_eq!(results, *expected);
+    }
+
+    #[test]
+    fn test_parse_simple_command() {
+        let test_input: Vec<String> =
+            vec!["PING".to_string(), "ping".to_string(), "pInG".to_string()];
+        let expected = b"+PONG\r\n";
+
+        let mut writer = VecDeque::new();
+        for input in test_input {
+            parse_simple_command(input, &mut writer).unwrap();
+
+            let mut results = [0u8; 7];
+            writer.read_exact(&mut results).unwrap();
+            assert_eq!(results, *expected);
+            writer.clear()
+        }
     }
 }
