@@ -7,6 +7,7 @@ use crate::resp::{self, Resp, RespError};
 
 enum Command {
     Echo(Resp),
+    Ping,
 }
 
 #[derive(Debug, Error)]
@@ -51,10 +52,10 @@ where
                 Ok(_) => {}
                 Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
             },
-            Resp::SimpleString(s) => match parse_simple_command(s, stream) {
-                Ok(_) => {}
-                Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
-            },
+            // Resp::SimpleString(s) => match parse_simple_command(s, stream) {
+            //     Ok(_) => {}
+            //     Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
+            // },
             _ => Resp::SimpleError("ERR invalid command".to_string()).write_to_writer(stream)?,
         },
 
@@ -70,6 +71,10 @@ impl Command {
     {
         match self {
             Command::Echo(contents) => match contents.write_to_writer(stream) {
+                Ok(_) => {}
+                Err(err) => return Err(RedisError::Other(err.into())),
+            },
+            Command::Ping => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
                 Ok(_) => {}
                 Err(err) => return Err(RedisError::Other(err.into())),
             },
@@ -92,26 +97,27 @@ where
                     Command::Echo(Resp::Array(input[1..].to_vec())).run_command(stream)?;
                 }
             }
+            "ping" => Command::Ping.run_command(stream)?,
             _ => return Err(RedisError::InvalidCommand(command.to_string())),
         };
     };
     Ok(())
 }
 
-fn parse_simple_command<S>(input: String, stream: &mut S) -> Result<(), RedisError>
-where
-    S: std::io::Write + std::io::Read,
-{
-    #[allow(clippy::single_match)]
-    match input.to_lowercase().as_str() {
-        "ping" => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
-            Ok(_) => {}
-            Err(err) => return Err(RedisError::Other(err.into())),
-        },
-        _ => {}
-    };
-    Ok(())
-}
+// fn parse_simple_command<S>(input: String, stream: &mut S) -> Result<(), RedisError>
+// where
+//     S: std::io::Write + std::io::Read,
+// {
+//     #[allow(clippy::single_match)]
+//     match input.to_lowercase().as_str() {
+//         "ping" => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
+//             Ok(_) => {}
+//             Err(err) => return Err(RedisError::Other(err.into())),
+//         },
+//         _ => {}
+//     };
+//     Ok(())
+// }
 
 #[cfg(test)]
 mod tests {
@@ -149,20 +155,20 @@ mod tests {
         assert_eq!(results, *expected);
     }
 
-    #[test]
-    fn test_parse_simple_command() {
-        let test_input: Vec<String> =
-            vec!["PING".to_string(), "ping".to_string(), "pInG".to_string()];
-        let expected = b"+PONG\r\n";
+    // #[test]
+    // fn test_parse_simple_command() {
+    //     let test_input: Vec<String> =
+    //         vec!["PING".to_string(), "ping".to_string(), "pInG".to_string()];
+    //     let expected = b"+PONG\r\n";
 
-        let mut writer = VecDeque::new();
-        for input in test_input {
-            parse_simple_command(input, &mut writer).unwrap();
+    //     let mut writer = VecDeque::new();
+    //     for input in test_input {
+    //         parse_simple_command(input, &mut writer).unwrap();
 
-            let mut results = [0u8; 7];
-            writer.read_exact(&mut results).unwrap();
-            assert_eq!(results, *expected);
-            writer.clear()
-        }
-    }
+    //         let mut results = [0u8; 7];
+    //         writer.read_exact(&mut results).unwrap();
+    //         assert_eq!(results, *expected);
+    //         writer.clear()
+    //     }
+    // }
 }
