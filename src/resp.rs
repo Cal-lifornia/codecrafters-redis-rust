@@ -62,14 +62,14 @@ impl Resp {
             }
             Resp::BulkString(s) => {
                 writer.write_all(b"$")?;
-                writer.write_all(&s.len().to_ne_bytes())?;
+                writer.write_all(s.len().to_string().as_bytes())?;
                 writer.write_all(&[CR, LF])?;
                 writer.write_all(s.as_bytes())?;
                 writer.write_all(&[CR, LF])?;
             }
             Resp::Array(v) => {
                 writer.write_all(b"*")?;
-                writer.write_all(&v.len().to_ne_bytes())?;
+                writer.write_all(v.len().to_string().as_bytes())?;
                 writer.write_all(&[CR, LF])?;
                 for resp in v {
                     resp.write_to_writer(writer)?;
@@ -255,4 +255,7 @@ mod tests {
             assert_eq!(result, *expected);
         }
     }
+
+    #[test]
+    fn test_writer() {}
 }
