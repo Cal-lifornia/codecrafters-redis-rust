@@ -6,7 +6,15 @@ enum Command {
     Echo(Resp),
     Ping,
     Get(String),
-    Set(String, String),
+    Set(String, String, Option<KeyExpiry>),
+}
+
+enum KeyExpiry {
+    Seconds(usize),
+    Milliseconds(usize),
+    Exat(usize),
+    PXAT(usize),
+    TTL,
 }
 impl Command {
     fn run_command(&self, db: Arc<RedisDatabase>) -> RedisResult {
