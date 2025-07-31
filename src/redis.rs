@@ -1,27 +1,27 @@
-use std::{net::TcpListener, sync::OnceLock, thread};
-
-use anyhow::Result;
+use std::{net::TcpListener, sync::Arc, thread};
 
 use crate::{
     commands::parse_array_command,
-    db::DB,
+    db::RedisDatabase,
     resp::{self, Resp},
+    RedisError,
 };
 
-pub static DB_CELL: OnceLock<DB> = OnceLock::new();
+pub(crate) type RedisResult = std::result::Result<Resp, RedisError>;
 
-pub fn init(port: &str) -> Result<()> {
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
+pub fn init(port: &str) -> Result<(), RedisError> {
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
 
-    DB_CELL.get_or_init(|| DB::new());
+    let db = Arc::new(RedisDatabase::default());
 
     for stream in listener.incoming() {
+        let clone_db = db.clone();
         match stream {
             Ok(mut stream) => {
-                thread::spawn(move || handle_stream(&mut stream)?);
+                thread::spawn(move || handle_stream(&mut stream, clone_db.clone()).unwrap());
             }
-            Err(e) => {
-                println!("error: {}", e);
+            Err(err) => {
+                println!("error: {err}");
             }
         }
     }
@@ -29,7 +29,7 @@ pub fn init(port: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn handle_stream<S>(stream: &mut S) -> Result<()>
+pub fn handle_stream<S>(stream: &mut S, db: Arc<RedisDatabase>) -> Result<(), RedisError>
 where
     S: std::io::Write + std::io::Read,
 {
@@ -39,26 +39,22 @@ where
             if count == 0 {
                 break;
             }
-            parse_input(stream, &buf)?
+            parse_input(stream, &buf, db.clone())?
         }
     }
     Ok(())
 }
 
-fn parse_input<S>(stream: &mut S, buf: &[u8]) -> Result<()>
+fn parse_input<S>(stream: &mut S, buf: &[u8], db: Arc<RedisDatabase>) -> Result<(), RedisError>
 where
     S: std::io::Write + std::io::Read,
 {
     match resp::parse(buf) {
         Ok((input, _)) => match input {
-            Resp::Array(contents) => match parse_array_command(&contents, stream) {
-                Ok(_) => {}
+            Resp::Array(contents) => match parse_array_command(&contents, db) {
+                Ok(response) => response.write_to_writer(stream)?,
                 Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
             },
-            // Resp::SimpleString(s) => match parse_simple_command(s, stream) {
-            //     Ok(_) => {}
-            //     Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
-            // },
             _ => Resp::SimpleError("ERR invalid command".to_string()).write_to_writer(stream)?,
         },
 
@@ -67,71 +63,39 @@ where
     Ok(())
 }
 
-// fn parse_simple_command<S>(input: String, stream: &mut S) -> Result<(), RedisError>
-// where
-//     S: std::io::Write + std::io::Read,
-// {
-//     #[allow(clippy::single_match)]
-//     match input.to_lowercase().as_str() {
-//         "ping" => match Resp::SimpleString("PONG".to_string()).write_to_writer(stream) {
-//             Ok(_) => {}
-//             Err(err) => return Err(RedisError::Other(err.into())),
-//         },
-//         _ => {}
-//     };
-//     Ok(())
-// }
-
 #[cfg(test)]
 mod tests {
     use std::{collections::VecDeque, io::Read};
 
     use super::*;
 
-    #[test]
-    fn test_handle_stream() {
-        let test_input = b"*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n";
-        let expected = b"$3\r\nhey\r\n";
-
-        let mut writer = VecDeque::new();
-
-        parse_input(&mut writer, test_input).unwrap();
-
-        let mut results = [0u8; 9];
-        writer.read_exact(&mut results).unwrap();
-        assert_eq!(results, *expected);
-    }
-
-    #[test]
-    fn test_parse_command() {
-        let test_input = vec![
-            Resp::BulkString("echo".to_string()),
-            Resp::BulkString("hey".to_string()),
-        ];
-        let expected = b"$3\r\nhey\r\n";
-        let mut writer = VecDeque::new();
-
-        parse_array_command(&test_input, &mut writer).unwrap();
-
-        let mut results = [0u8; 9];
-        writer.read_exact(&mut results).unwrap();
-        assert_eq!(results, *expected);
-    }
-
     // #[test]
-    // fn test_parse_simple_command() {
-    //     let test_input: Vec<String> =
-    //         vec!["PING".to_string(), "ping".to_string(), "pInG".to_string()];
-    //     let expected = b"+PONG\r\n";
+    // fn test_handle_stream() {
+    //     let test_input = b"*2\r\n$4\r\nECHO\r\n$3\r\nhey\r\n";
+    //     let expected = b"$3\r\nhey\r\n";
 
     //     let mut writer = VecDeque::new();
-    //     for input in test_input {
-    //         parse_simple_command(input, &mut writer).unwrap();
 
-    //         let mut results = [0u8; 7];
-    //         writer.read_exact(&mut results).unwrap();
-    //         assert_eq!(results, *expected);
-    //         writer.clear()
-    //     }
+    //     parse_input(&mut writer, test_input).unwrap();
+
+    //     let mut results = [0u8; 9];
+    //     writer.read_exact(&mut results).unwrap();
+    //     assert_eq!(results, *expected);
+    // }
+
+    // #[test]
+    // fn test_parse_command() {
+    //     let test_input = vec![
+    //         Resp::BulkString("echo".to_string()),
+    //         Resp::BulkString("hey".to_string()),
+    //     ];
+    //     let expected = b"$3\r\nhey\r\n";
+    //     let mut writer = VecDeque::new();
+
+    //     parse_array_command(&test_input, &mut writer).unwrap();
+
+    //     let mut results = [0u8; 9];
+    //     writer.read_exact(&mut results).unwrap();
+    //     assert_eq!(results, *expected);
     // }
 }

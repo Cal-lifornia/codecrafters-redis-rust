@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::io::Write;
 
 use thiserror::Error;
@@ -37,10 +36,11 @@ pub enum Resp {
     Integer(i32),
     BulkString(String),
     Array(Vec<Resp>),
+    NullBulkString,
 }
 
 impl Resp {
-    pub fn write_to_writer<W>(&self, writer: &mut W) -> Result<()>
+    pub fn write_to_writer<W>(&self, writer: &mut W) -> Result<(), RespError>
     where
         W: Write,
     {
@@ -65,6 +65,10 @@ impl Resp {
                 writer.write_all(s.len().to_string().as_bytes())?;
                 writer.write_all(&[CR, LF])?;
                 writer.write_all(s.as_bytes())?;
+                writer.write_all(&[CR, LF])?;
+            }
+            Resp::NullBulkString => {
+                writer.write_all(b"$-1")?;
                 writer.write_all(&[CR, LF])?;
             }
             Resp::Array(v) => {

@@ -1,6 +1,4 @@
-use std::{net::TcpListener, thread};
-
-use codecrafters_redis::redis::handle_stream;
+use codecrafters_redis::redis::{self};
 
 fn main() {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -8,16 +6,5 @@ fn main() {
 
     // Uncomment this block to pass the first stage
     //
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                thread::spawn(move || handle_stream(&mut stream));
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
+    redis::init("6379").unwrap();
 }

@@ -40,6 +40,7 @@
               gnuplot
               cargo-xwin
               (rust-bin.stable.latest.default)
+              codecrafters-cli
             ];
 
             LD_LIBRARY_PATH = lib.makeLibraryPath buildInputs;
