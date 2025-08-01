@@ -1,28 +1,100 @@
 use std::{
     collections::HashMap,
-    sync::{LazyLock, PoisonError, RwLock},
+    sync::{OnceLock, PoisonError, RwLock},
+    time::{Duration, Instant},
 };
 
 use thiserror::Error;
 
-pub struct RedisDatabase(RwLock<HashMap<String, String>>);
+static DB_START: OnceLock<Instant> = OnceLock::new();
+
+pub struct RedisDatabase(RwLock<HashMap<String, DatabaseEntry>>);
 
 impl RedisDatabase {
-    pub fn set(&self, key: &str, value: &str) -> Result<(), DatabaseError> {
-        let mut db = self.0.write()?;
-        db.insert(key.to_string(), value.to_string());
-        Ok(())
-    }
-
-    pub fn get(&self, key: &str) -> Result<Option<String>, DatabaseError> {
-        let db = self.0.read()?;
-        Ok(db.get(key).cloned())
+    pub fn init() -> Self {
+        Self::default()
     }
 }
 
 impl Default for RedisDatabase {
     fn default() -> Self {
+        DB_START.get_or_init(Instant::now);
         Self(RwLock::new(HashMap::new()))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DatabaseEntry {
+    value: String,
+    expiry: Option<Instant>,
+}
+
+impl DatabaseEntry {
+    fn new(value: &str, expiry: Option<Instant>) -> Self {
+        Self {
+            value: value.to_string(),
+            expiry,
+        }
+    }
+
+    fn value(&self) -> &str {
+        &self.value
+    }
+    fn is_expired(&self) -> bool {
+        if let Some(expiry) = self.expiry {
+            Instant::now() > expiry
+        } else {
+            false
+        }
+    }
+    fn update_value_ttl_expiry(&mut self, value: &str) {
+        self.value = value.to_string()
+    }
+}
+
+impl RedisDatabase {
+    pub fn set(
+        &self,
+        key: &str,
+        value: &str,
+        expires: Option<Duration>,
+        keep_ttl: bool,
+    ) -> Result<(), DatabaseError> {
+        let mut db = self.0.write()?;
+        let expiry = expires.map(|e| Instant::now() + e);
+
+        if keep_ttl {
+            if let Some(entry) = db.get_mut(key) {
+                if !entry.is_expired() {
+                    entry.update_value_ttl_expiry(value);
+                    return Ok(());
+                }
+            }
+        }
+
+        db.insert(key.to_string(), DatabaseEntry::new(value, expiry));
+        Ok(())
+    }
+
+    pub fn get(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+        let expired = {
+            let db = self.0.read()?;
+            if let Some(entry) = db.get(key) {
+                if !entry.is_expired() {
+                    return Ok(Some(entry.value().to_string()));
+                } else {
+                    true
+                }
+            } else {
+                return Ok(None);
+            }
+        };
+
+        if expired {
+            let mut db = self.0.write()?;
+            db.remove(key);
+        }
+        Ok(None)
     }
 }
 

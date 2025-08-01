@@ -15,23 +15,15 @@ pub enum RedisError {
     #[error("invalid input")]
     InvalidInput,
     #[error("{0}")]
-    ParserError(RespError),
+    RespError(#[from] RespError),
     #[error("{0}")]
-    DBError(DatabaseError),
+    DBError(#[from] DatabaseError),
+    #[error("error parsing input {0}")]
+    IntParseError(#[from] std::num::ParseIntError),
+    #[error("error parsing input {0}")]
+    StringParseError(#[from] std::string::ParseError),
     #[error("{0}")]
     Other(Box<dyn std::error::Error>),
     #[error("{0}")]
     Unknown(String),
-}
-
-impl From<RespError> for RedisError {
-    fn from(value: RespError) -> Self {
-        Self::ParserError(value)
-    }
-}
-
-impl From<DatabaseError> for RedisError {
-    fn from(value: DatabaseError) -> Self {
-        Self::DBError(value)
-    }
 }
