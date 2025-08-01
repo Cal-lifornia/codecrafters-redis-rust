@@ -81,18 +81,14 @@ impl RedisDatabase {
             end = if end.is_negative() { end + len } else { end };
             let end_index = end.min(len) as usize;
 
-            println!("start_index: {start_index}");
-
+            if start_index == 0 {
+                return Ok(list[..=end_index].to_vec());
+            }
             Ok(list[start_index..=end_index].to_vec())
         } else {
             Ok([].to_vec())
         }
     }
-
-    // Len is 7, modified 6
-    // Start index is 0
-    // End is -5
-    //
 
     pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
         let expired = {
