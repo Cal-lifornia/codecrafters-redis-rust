@@ -50,13 +50,11 @@ impl RedisDatabase {
     pub fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            for value in values {
-                list.push(value.to_string());
-            }
+            list.extend_from_slice(values);
             Ok(list.len() as i32)
         } else {
             db.insert(key.to_string(), DatabaseEntry::List(values.to_vec()));
-            Ok(1)
+            Ok(values.len() as i32)
         }
     }
 
