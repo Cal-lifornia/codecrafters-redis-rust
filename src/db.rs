@@ -93,6 +93,10 @@ impl RedisDatabase {
 
             println!("start: {start_index}; end: {end_index}");
 
+            if start_index > end_index {
+                return Ok([].to_vec());
+            }
+
             Ok(list[start_index..=end_index].to_vec())
         } else {
             Ok([].to_vec())
