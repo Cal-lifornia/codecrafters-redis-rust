@@ -7,8 +7,6 @@ use crate::{
     RedisError,
 };
 
-pub(crate) type RedisResult = std::result::Result<Resp, RedisError>;
-
 pub fn init(port: &str) -> Result<(), RedisError> {
     let listener = TcpListener::bind(format!("127.0.0.1:{port}")).unwrap();
 

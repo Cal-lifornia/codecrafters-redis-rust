@@ -36,6 +36,7 @@ pub enum Resp {
     Integer(i32),
     BulkString(String),
     Array(Vec<Resp>),
+    StringArray(Vec<String>),
     NullBulkString,
 }
 
@@ -77,6 +78,14 @@ impl Resp {
                 writer.write_all(&[CR, LF])?;
                 for resp in v {
                     resp.write_to_writer(writer)?;
+                }
+            }
+            Resp::StringArray(s) => {
+                writer.write_all(b"*")?;
+                writer.write_all(s.len().to_string().as_bytes())?;
+                writer.write_all(&[CR, LF])?;
+                for item in s {
+                    Resp::BulkString(item.to_string()).write_to_writer(writer)?;
                 }
             }
         };

@@ -58,6 +58,35 @@ impl RedisDatabase {
         }
     }
 
+    pub fn read_list(
+        &self,
+        key: &str,
+        start: i32,
+        mut end: i32,
+    ) -> Result<Vec<String>, DatabaseError> {
+        let db = self.0.read()?;
+        if let Some(DatabaseEntry::List(list)) = db.get(key) {
+            let len = (list.len() - 1) as i32;
+            if start > len {
+                return Ok([].to_vec());
+            };
+            let start_index = if start.is_negative() {
+                // Start will be negative so has to be added together with len
+                (start + len) as usize
+            } else {
+                start as usize
+            };
+
+            // End will be negative so has to be added together with len
+            end = if end.is_negative() { end + len } else { end };
+            let end_index = end.max(len) as usize;
+
+            Ok(list[start_index..=end_index].to_vec())
+        } else {
+            Ok([].to_vec())
+        }
+    }
+
     pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
         let expired = {
             let db = self.0.read()?;
