@@ -79,6 +79,8 @@ impl RedisDatabase {
                 end.min(len) as usize
             };
 
+            println!("start: {start_index}; end: {end_index}");
+
             Ok(list[start_index..=end_index].to_vec())
         } else {
             Ok([].to_vec())
@@ -165,5 +167,33 @@ mod tests {
         sleep(Duration::from_millis(105));
 
         assert!(test_entry.is_expired())
+    }
+
+    #[test]
+    fn test_read_list() {
+        let db = RedisDatabase::init();
+        let test_entry = vec![
+            "pear".to_string(),
+            "apple".to_string(),
+            "banana".to_string(),
+            "orange".to_string(),
+            "blueberry".to_string(),
+            "strawberry".to_string(),
+        ];
+
+        db.push_list("test", &test_entry).unwrap();
+
+        let test_input = [(0, 3), (0, -2)];
+        let expected = vec![
+            "pear".to_string(),
+            "apple".to_string(),
+            "banana".to_string(),
+            "orange".to_string(),
+        ];
+
+        for (i, (start, end)) in test_input.iter().enumerate() {
+            let results = db.read_list("test", *start, *end).unwrap();
+            assert_eq!(results, expected, "testing case {i}")
+        }
     }
 }
