@@ -60,6 +60,7 @@ impl RedisDatabase {
 
     pub fn read_list(&self, key: &str, start: i32, end: i32) -> Result<Vec<String>, DatabaseError> {
         let db = self.0.read()?;
+        println!("start: {start}; end: {end}");
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             let len = (list.len() - 1) as i32;
             if start > len {
