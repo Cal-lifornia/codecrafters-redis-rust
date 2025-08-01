@@ -99,7 +99,7 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
                 .collect::<Vec<String>>(),
         )
         .run_command(db),
-        "lpush" => {
+        "lrange" => {
             let args = &inputs[1..];
             if args.len() > 3 {
                 return Err(CommandError::WrongNumArgs("lpush".to_string()));
