@@ -68,14 +68,14 @@ impl RedisDatabase {
             };
             let start_index = if start.is_negative() {
                 // Start will be negative so has to be added together with len
-                (len % start + start) as usize
+                (len % start) as usize
             } else {
                 start as usize
             };
 
             // End will be negative so has to be added together with len
             let end_index = if end.is_negative() {
-                (len % end + end) as usize
+                (len % end) as usize
             } else {
                 end.min(len - 1) as usize
             };
