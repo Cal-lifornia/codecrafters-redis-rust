@@ -1,11 +1,8 @@
-use std::{
-    borrow::Borrow,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use crate::{db::RedisDatabase, redis::RedisResult, resp::Resp, RedisError};
 
+#[derive(Debug, PartialEq, Eq)]
 enum Command {
     Echo(String),
     Ping,
@@ -77,7 +74,7 @@ fn parse_set_command(args: &[&str]) -> Result<Command, RedisError> {
             None,
             false,
         )),
-        3..4 => {
+        3 | 4 => {
             let (key, val, expiry_opt) = (args[0], args[1], args[2]);
 
             if expiry_opt.to_lowercase().as_str() == "keepttl" {
@@ -103,5 +100,48 @@ fn parse_set_command(args: &[&str]) -> Result<Command, RedisError> {
             ))
         }
         _ => Err(RedisError::InvalidInput),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_set_command() {
+        // let test_commands = &[
+        //     vec![
+        //         Resp::BulkString("mango".to_string()),
+        //         Resp::BulkString("blueberry".to_string()),
+        //     ],
+        //     vec![
+        //         Resp::BulkString("mango".to_string()),
+        //         Resp::BulkString("blueberry".to_string()),
+        //         Resp::BulkString("px".to_string()),
+        //         Resp::BulkString("100".to_string()),
+        //     ],
+        // ];
+        let test_commands = &[
+            vec!["mango", "blueberry"],
+            vec!["mango", "blueberry", "px", "100"],
+        ];
+
+        let expected = &[
+            Command::Set("mango".to_string(), "blueberry".to_string(), None, false),
+            Command::Set(
+                "mango".to_string(),
+                "blueberry".to_string(),
+                Some(Duration::from_millis(100)),
+                false,
+            ),
+        ];
+
+        test_commands
+            .iter()
+            .zip(expected.iter())
+            .for_each(|(command, expecting)| {
+                let result = parse_set_command(command).unwrap();
+                assert_eq!(*expecting, result)
+            })
     }
 }

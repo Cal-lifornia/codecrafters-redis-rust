@@ -109,3 +109,19 @@ impl<T> From<PoisonError<T>> for DatabaseError {
         Self::PoisonError
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::thread::sleep;
+
+    use super::*;
+
+    #[test]
+    fn test_is_expired() {
+        let test_entry =
+            DatabaseEntry::new("test", Some(Instant::now() + Duration::from_millis(100)));
+        sleep(Duration::from_millis(105));
+
+        assert!(test_entry.is_expired())
+    }
+}
