@@ -69,14 +69,24 @@ impl RedisDatabase {
             };
             let start_index = if start.is_negative() {
                 // Start will be negative so has to be added together with len
-                ((len - 1) - start.abs() % len) as usize
+                let modulo = start.abs() % len;
+                if modulo > 0 {
+                    (len - modulo) as usize
+                } else {
+                    0usize
+                }
             } else {
                 start as usize
             };
 
             // End will be negative so has to be added together with len
             let end_index = if end.is_negative() {
-                ((len - 1) - end.abs() % len) as usize
+                let modulo = end.abs() % len;
+                if modulo > 0 {
+                    (len - modulo) as usize
+                } else {
+                    0usize
+                }
             } else {
                 end.min(len - 1) as usize
             };
@@ -186,7 +196,7 @@ mod tests {
 
         db.push_list("test", &test_entry).unwrap();
 
-        let test_input = [(0, 1), (0, -5), (-7, -3)];
+        let test_input = [(0, 1), (0, -6), (-7, -6)];
         let expected = vec!["pear".to_string(), "apple".to_string()];
 
         for (i, (start, end)) in test_input.iter().enumerate() {
