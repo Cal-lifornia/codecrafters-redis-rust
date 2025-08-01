@@ -77,9 +77,13 @@ impl RedisDatabase {
                 start as usize
             };
 
+            end = end.min(len);
             // End will be negative so has to be added together with len
-            end = if end.is_negative() { end + len } else { end };
-            let end_index = end.min(len) as usize;
+            let end_index = if end.is_negative() {
+                (end + len) as usize
+            } else {
+                end as usize
+            };
 
             if start_index == 0 {
                 return Ok(list[..=end_index].to_vec());
