@@ -25,19 +25,22 @@ impl Default for RedisDatabase {
 
 #[derive(Debug, Clone)]
 pub struct DatabaseEntry {
-    value: String,
+    value: DatabaseEntryType,
     expiry: Option<Instant>,
 }
 
+#[derive(Debug, Clone)]
+pub enum DatabaseEntryType {
+    String(String),
+    List(Vec<String>),
+}
+
 impl DatabaseEntry {
-    fn new(value: &str, expiry: Option<Instant>) -> Self {
-        Self {
-            value: value.to_string(),
-            expiry,
-        }
+    fn new(value: DatabaseEntryType, expiry: Option<Instant>) -> Self {
+        Self { value, expiry }
     }
 
-    fn value(&self) -> &str {
+    fn value(&self) -> &DatabaseEntryType {
         &self.value
     }
     fn is_expired(&self) -> bool {
@@ -53,7 +56,7 @@ impl DatabaseEntry {
 }
 
 impl RedisDatabase {
-    pub fn set(
+    pub fn set_string(
         &self,
         key: &str,
         value: &str,
@@ -72,7 +75,10 @@ impl RedisDatabase {
             }
         }
 
-        db.insert(key.to_string(), DatabaseEntry::new(value, expiry));
+        db.insert(
+            key.to_string(),
+            DatabaseEntry::new(DatabaseEntryType::String(value.to_string()), expiry),
+        );
         Ok(())
     }
 
