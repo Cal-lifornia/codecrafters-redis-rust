@@ -16,7 +16,11 @@ pub fn init(port: &str) -> Result<(), RedisError> {
         let clone_db = db.clone();
         match stream {
             Ok(mut stream) => {
-                thread::spawn(move || handle_stream(&mut stream, clone_db.clone()).unwrap());
+                thread::spawn(move || {
+                    if let Err(err) = handle_stream(&mut stream, clone_db.clone()) {
+                        println!("error: {err}");
+                    }
+                });
             }
             Err(err) => {
                 println!("error: {err}");
