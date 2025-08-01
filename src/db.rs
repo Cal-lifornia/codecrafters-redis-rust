@@ -67,37 +67,41 @@ impl RedisDatabase {
             if start > len - 1 {
                 return Ok([].to_vec());
             };
-            let start_index = if start.is_negative() {
-                // Start will be negative so has to be added together with len
-                let modulo = start.abs() % len;
-                if modulo > 0 {
-                    (len - modulo) as usize
-                } else {
-                    0usize
-                }
-            } else {
-                start as usize
-            };
+            // let start_index = if start.is_negative() {
+            //     // Start will be negative so has to be added together with len
+            //     let modulo = start.abs() % len;
+            //     if modulo > 0 {
+            //         (len - modulo) as usize
+            //     } else {
+            //         0usize
+            //     }
+            // } else {
+            //     start as usize
+            // };
 
-            // End will be negative so has to be added together with len
-            let end_index = if end.is_negative() {
-                let modulo = end.abs() % len;
-                if modulo > 0 {
-                    (len - modulo) as usize
-                } else {
-                    0usize
-                }
-            } else {
-                end.min(len - 1) as usize
-            };
+            // // End will be negative so has to be added together with len
+            // let end_index = if end.is_negative() {
+            //     let modulo = end.abs() % len;
+            //     if modulo > 0 {
+            //         (len - modulo) as usize
+            //     } else {
+            //         0usize
+            //     }
+            // } else {
+            //     end.min(len - 1) as usize
+            // };
+            let start = if start < 0 { len + start } else { start };
+            let end = if end < 0 { len + end } else { end };
+            let start = start.max(0) as usize;
+            let end = end.min(len - 1) as usize;
 
-            println!("start: {start_index}; end: {end_index}");
+            // println!("start: {start_index}; end: {end_index}");
 
-            if start_index > end_index {
+            if start > end {
                 return Ok([].to_vec());
             }
 
-            Ok(list[start_index..=end_index].to_vec())
+            Ok(list[start..=end].to_vec())
         } else {
             Ok([].to_vec())
         }
