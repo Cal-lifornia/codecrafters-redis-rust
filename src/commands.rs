@@ -3,20 +3,21 @@ use std::{sync::Arc, time::Duration};
 use crate::{db::RedisDatabase, redis::RedisResult, resp::Resp, RedisError};
 
 #[derive(Debug, PartialEq, Eq)]
-enum Command {
-    Echo(String),
+enum Command<'a> {
+    Echo(&'a str),
     Ping,
-    Get(String),
-    Set(String, String, Option<Duration>, bool),
+    Get(&'a str),
+    Set(&'a str, &'a str, Option<Duration>, bool),
+    Rpush(&'a str, &'a str),
 }
 
-impl Command {
+impl<'a> Command<'a> {
     fn run_command(&self, db: Arc<RedisDatabase>) -> RedisResult {
         match self {
             Command::Echo(contents) => Ok(Resp::BulkString(contents.to_string())),
             Command::Ping => Ok(Resp::SimpleString("PONG".to_string())),
             Command::Set(key, value, expiry, keep_ttl) => {
-                match db.set(key, value, *expiry, *keep_ttl) {
+                match db.set_string(key, value, *expiry, *keep_ttl) {
                     Ok(_) => Ok(Resp::SimpleString("OK".to_string())),
                     Err(err) => Err(err.into()),
                 }
@@ -25,6 +26,7 @@ impl Command {
                 Some(val) => Ok(Resp::SimpleString(val)),
                 None => Ok(Resp::NullBulkString),
             },
+            Command::Rpush(_, _) => todo!(),
         }
     }
 }
@@ -43,7 +45,7 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> RedisResul
         "echo" => {
             let args = &inputs[1..];
             if args.len() == 1 {
-                Command::Echo(args[0].to_string()).run_command(db)
+                Command::Echo(args[0]).run_command(db)
             } else {
                 Err(RedisError::InvalidInput)
             }
@@ -53,7 +55,7 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> RedisResul
             let args = &inputs[1..];
 
             if !args.len() > 1 {
-                Command::Get(args[0].to_string()).run_command(db)
+                Command::Get(args[0]).run_command(db)
             } else {
                 Err(RedisError::InvalidInput)
             }
@@ -66,19 +68,14 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> RedisResul
     }
 }
 
-fn parse_set_command(args: &[&str]) -> Result<Command, RedisError> {
+fn parse_set_command<'a>(args: &'a [&'a str]) -> Result<Command<'a>, RedisError> {
     match args.len() {
-        2 => Ok(Command::Set(
-            args[0].to_string(),
-            args[1].to_string(),
-            None,
-            false,
-        )),
+        2 => Ok(Command::Set(args[0], args[1], None, false)),
         3 | 4 => {
             let (key, val, expiry_opt) = (args[0], args[1], args[2]);
 
             if expiry_opt.to_lowercase().as_str() == "keepttl" {
-                return Ok(Command::Set(key.to_string(), val.to_string(), None, true));
+                return Ok(Command::Set(key, val, None, true));
             }
             if args.len() != 4 {
                 return Err(RedisError::InvalidInput);
@@ -92,12 +89,7 @@ fn parse_set_command(args: &[&str]) -> Result<Command, RedisError> {
                 _ => return Err(RedisError::InvalidCommand(expiry_opt.to_string())),
             };
 
-            Ok(Command::Set(
-                key.to_string(),
-                val.to_string(),
-                Some(expiry),
-                false,
-            ))
+            Ok(Command::Set(key, val, Some(expiry), false))
         }
         _ => Err(RedisError::InvalidInput),
     }
@@ -127,10 +119,10 @@ mod tests {
         ];
 
         let expected = &[
-            Command::Set("mango".to_string(), "blueberry".to_string(), None, false),
+            Command::Set("mango", "blueberry", None, false),
             Command::Set(
-                "mango".to_string(),
-                "blueberry".to_string(),
+                "mango",
+                "blueberry",
                 Some(Duration::from_millis(100)),
                 false,
             ),

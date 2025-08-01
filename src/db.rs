@@ -1,12 +1,10 @@
 use std::{
     collections::HashMap,
-    sync::{OnceLock, PoisonError, RwLock},
+    sync::{PoisonError, RwLock},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-
-static DB_START: OnceLock<Instant> = OnceLock::new();
 
 pub struct RedisDatabase(RwLock<HashMap<String, DatabaseEntry>>);
 
@@ -18,40 +16,7 @@ impl RedisDatabase {
 
 impl Default for RedisDatabase {
     fn default() -> Self {
-        DB_START.get_or_init(Instant::now);
         Self(RwLock::new(HashMap::new()))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DatabaseEntry {
-    value: DatabaseEntryType,
-    expiry: Option<Instant>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DatabaseEntryType {
-    String(String),
-    List(Vec<String>),
-}
-
-impl DatabaseEntry {
-    fn new(value: DatabaseEntryType, expiry: Option<Instant>) -> Self {
-        Self { value, expiry }
-    }
-
-    fn value(&self) -> &DatabaseEntryType {
-        &self.value
-    }
-    fn is_expired(&self) -> bool {
-        if let Some(expiry) = self.expiry {
-            Instant::now() > expiry
-        } else {
-            false
-        }
-    }
-    fn update_value_ttl_expiry(&mut self, value: &str) {
-        self.value = value.to_string()
     }
 }
 
@@ -67,7 +32,7 @@ impl RedisDatabase {
         let expiry = expires.map(|e| Instant::now() + e);
 
         if keep_ttl {
-            if let Some(entry) = db.get_mut(key) {
+            if let Some(DatabaseEntry::String(entry)) = db.get_mut(key) {
                 if !entry.is_expired() {
                     entry.update_value_ttl_expiry(value);
                     return Ok(());
@@ -77,15 +42,29 @@ impl RedisDatabase {
 
         db.insert(
             key.to_string(),
-            DatabaseEntry::new(DatabaseEntryType::String(value.to_string()), expiry),
+            DatabaseEntry::String(DatabaseString::new(value, expiry)),
         );
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+    pub fn push_list(&self, key: &str, value: &str) -> Result<usize, DatabaseError> {
+        let mut db = self.0.write()?;
+        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+            list.push(value.to_string());
+            return Ok(list.len());
+        } else {
+            db.insert(
+                key.to_string(),
+                DatabaseEntry::List(vec![value.to_string()]),
+            );
+            return Ok(1);
+        }
+    }
+
+    pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
         let expired = {
             let db = self.0.read()?;
-            if let Some(entry) = db.get(key) {
+            if let Some(DatabaseEntry::String(entry)) = db.get(key) {
                 if !entry.is_expired() {
                     return Ok(Some(entry.value().to_string()));
                 } else {
@@ -101,6 +80,39 @@ impl RedisDatabase {
             db.remove(key);
         }
         Ok(None)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum DatabaseEntry {
+    String(DatabaseString),
+    List(Vec<String>),
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct DatabaseString {
+    value: String,
+    expiry: Option<Instant>,
+}
+impl DatabaseString {
+    fn new(value: &str, expiry: Option<Instant>) -> Self {
+        Self {
+            value: value.to_string(),
+            expiry,
+        }
+    }
+    fn value(&self) -> &str {
+        &self.value
+    }
+    fn is_expired(&self) -> bool {
+        if let Some(expiry) = self.expiry {
+            Instant::now() > expiry
+        } else {
+            false
+        }
+    }
+    fn update_value_ttl_expiry(&mut self, value: &str) {
+        self.value = value.to_string()
     }
 }
 
@@ -125,7 +137,7 @@ mod tests {
     #[test]
     fn test_is_expired() {
         let test_entry =
-            DatabaseEntry::new("test", Some(Instant::now() + Duration::from_millis(100)));
+            DatabaseString::new("test", Some(Instant::now() + Duration::from_millis(100)));
         sleep(Duration::from_millis(105));
 
         assert!(test_entry.is_expired())
