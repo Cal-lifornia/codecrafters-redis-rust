@@ -57,7 +57,7 @@ impl Resp {
             }
             Resp::Integer(i) => {
                 writer.write_all(b":")?;
-                writer.write_all(format!("{}", i).as_bytes())?;
+                writer.write_all(format!("{i}").as_bytes())?;
                 writer.write_all(&[CR, LF])?;
             }
             Resp::BulkString(s) => {
@@ -164,7 +164,6 @@ fn parse_array(data: &[u8]) -> RespResult {
 }
 
 #[cfg(test)]
-
 mod tests {
     use super::*;
 

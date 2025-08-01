@@ -53,12 +53,12 @@ where
         Ok((input, _)) => match input {
             Resp::Array(contents) => match parse_array_command(&contents, db) {
                 Ok(response) => response.write_to_writer(stream)?,
-                Err(err) => Resp::SimpleError(format!("ERR {}", err)).write_to_writer(stream)?,
+                Err(err) => Resp::SimpleError(format!("ERR {err}")).write_to_writer(stream)?,
             },
             _ => Resp::SimpleError("ERR invalid command".to_string()).write_to_writer(stream)?,
         },
 
-        Err(e) => Resp::SimpleError(format!("ERR {}", e)).write_to_writer(stream)?,
+        Err(err) => Resp::SimpleError(format!("ERR {err}")).write_to_writer(stream)?,
     };
     Ok(())
 }

@@ -47,17 +47,14 @@ impl RedisDatabase {
         Ok(())
     }
 
-    pub fn push_list(&self, key: &str, value: &str) -> Result<usize, DatabaseError> {
+    pub fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            list.push(value.to_string());
-            return Ok(list.len());
+            list.extend_from_slice(values);
+            Ok(list.len() as i32)
         } else {
-            db.insert(
-                key.to_string(),
-                DatabaseEntry::List(vec![value.to_string()]),
-            );
-            return Ok(1);
+            db.insert(key.to_string(), DatabaseEntry::List(values.to_vec()));
+            Ok(1)
         }
     }
 

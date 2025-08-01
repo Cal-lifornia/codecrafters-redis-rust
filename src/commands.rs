@@ -8,7 +8,7 @@ enum Command<'a> {
     Ping,
     Get(&'a str),
     Set(&'a str, &'a str, Option<Duration>, bool),
-    Rpush(&'a str, &'a str),
+    Rpush(&'a str, &'a [String]),
 }
 
 impl<'a> Command<'a> {
@@ -22,11 +22,11 @@ impl<'a> Command<'a> {
                     Err(err) => Err(err.into()),
                 }
             }
-            Command::Get(key) => match db.get(key)? {
+            Command::Get(key) => match db.get_string(key)? {
                 Some(val) => Ok(Resp::SimpleString(val)),
                 None => Ok(Resp::NullBulkString),
             },
-            Command::Rpush(_, _) => todo!(),
+            Command::Rpush(key, value) => Ok(Resp::Integer(db.push_list(key, value)?)),
         }
     }
 }
@@ -64,6 +64,15 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> RedisResul
             let args = &inputs[1..];
             parse_set_command(args)?.run_command(db)
         }
+        "rpush" => Command::Rpush(
+            inputs[1],
+            &inputs[2..]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        )
+        .run_command(db),
+
         _ => Err(RedisError::InvalidCommand(inputs[0].to_string())),
     }
 }
