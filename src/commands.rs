@@ -34,6 +34,7 @@ enum Command<'a> {
     Rpush(&'a str, &'a [String]),
     Lpush(&'a str, &'a [String]),
     Lrange(&'a str, i32, i32),
+    Llen(&'a str),
 }
 
 impl<'a> Command<'a> {
@@ -58,6 +59,7 @@ impl<'a> Command<'a> {
             Command::Lrange(key, start, end) => {
                 Ok(Resp::StringArray(db.read_list(key, *start, *end)?))
             }
+            Command::Llen(key) => Ok(Resp::Integer(db.get_list_length(key)?)),
         }
     }
 }
@@ -119,6 +121,7 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
 
             Command::Lrange(args[0], args[1].parse()?, args[2].parse()?).run_command(db)
         }
+        "llen" => Command::Llen(inputs[1]).run_command(db),
 
         _ => Err(CommandError::InvalidCommand(inputs[0].to_string())),
     }

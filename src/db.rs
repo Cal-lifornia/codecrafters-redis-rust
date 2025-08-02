@@ -66,7 +66,7 @@ impl RedisDatabase {
             *list = [reversed, list.to_vec()].concat();
             Ok(list.len() as i32)
         } else {
-            db.insert(key.to_string(), DatabaseEntry::List(values.to_vec()));
+            db.insert(key.to_string(), DatabaseEntry::List(reversed));
             Ok(values.len() as i32)
         }
     }
@@ -90,6 +90,15 @@ impl RedisDatabase {
             Ok(list[start..=end].to_vec())
         } else {
             Ok([].to_vec())
+        }
+    }
+
+    pub fn get_list_length(&self, key: &str) -> Result<i32, DatabaseError> {
+        let db = self.0.read()?;
+        if let Some(DatabaseEntry::List(list)) = db.get(key) {
+            Ok(list.len() as i32)
+        } else {
+            Ok(0)
         }
     }
 
@@ -222,6 +231,24 @@ mod tests {
 
             let result = db.read_list("test", 0, -1).unwrap();
 
+            assert_eq!(result, expected)
+        }
+    }
+    #[test]
+    fn test_get_list_length() {
+        let db = RedisDatabase::init();
+
+        let test_entries = [
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            vec!["d".to_string()],
+        ];
+
+        let expecting = [3, 1, 0];
+
+        for (i, (entry, expected)) in test_entries.iter().zip(expecting).enumerate() {
+            db.push_list(format!("test{i}").as_str(), entry).unwrap();
+
+            let result = db.get_list_length(format!("test{i}").as_str()).unwrap();
             assert_eq!(result, expected)
         }
     }
