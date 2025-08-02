@@ -58,44 +58,30 @@ impl RedisDatabase {
         }
     }
 
+    pub fn prepend_list(&self, key: &str, values: Vec<String>) -> Result<i32, DatabaseError> {
+        let mut db = self.0.write()?;
+        let mut reversed = values.clone();
+        reversed.reverse();
+        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+            *list = [reversed, list.to_vec()].concat();
+            Ok(list.len() as i32)
+        } else {
+            db.insert(key.to_string(), DatabaseEntry::List(values.to_vec()));
+            Ok(values.len() as i32)
+        }
+    }
+
     pub fn read_list(&self, key: &str, start: i32, end: i32) -> Result<Vec<String>, DatabaseError> {
         let db = self.0.read()?;
-        println!("start: {start}; end: {end}");
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             let len = list.len() as i32;
-            println!("len: {len}");
             if start > len - 1 {
                 return Ok([].to_vec());
             };
-            // let start_index = if start.is_negative() {
-            //     // Start will be negative so has to be added together with len
-            //     let modulo = start.abs() % len;
-            //     if modulo > 0 {
-            //         (len - modulo) as usize
-            //     } else {
-            //         0usize
-            //     }
-            // } else {
-            //     start as usize
-            // };
-
-            // // End will be negative so has to be added together with len
-            // let end_index = if end.is_negative() {
-            //     let modulo = end.abs() % len;
-            //     if modulo > 0 {
-            //         (len - modulo) as usize
-            //     } else {
-            //         0usize
-            //     }
-            // } else {
-            //     end.min(len - 1) as usize
-            // };
             let start = if start < 0 { len + start } else { start };
             let end = if end < 0 { len + end } else { end };
             let start = start.max(0) as usize;
             let end = end.min(len - 1) as usize;
-
-            // println!("start: {start_index}; end: {end_index}");
 
             if start > end {
                 return Ok([].to_vec());
@@ -204,12 +190,39 @@ mod tests {
 
         db.push_list("test", &test_entry).unwrap();
 
-        let test_input = [(0, 1), (0, -6), (-7, -6)];
+        let test_input = [(0, 1), (0, -6), (-9, -6)];
         let expected = vec!["pear".to_string(), "apple".to_string()];
 
         for (i, (start, end)) in test_input.iter().enumerate() {
             let results = db.read_list("test", *start, *end).unwrap();
             assert_eq!(results, expected, "testing case {i}")
+        }
+    }
+
+    #[test]
+    fn test_prepend_list() {
+        let db = RedisDatabase::init();
+        let mut test_entries = [
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            vec!["d".to_string()],
+        ];
+
+        let expecting = vec![
+            vec!["c".to_string(), "b".to_string(), "a".to_string()],
+            vec![
+                "d".to_string(),
+                "c".to_string(),
+                "b".to_string(),
+                "a".to_string(),
+            ],
+        ];
+
+        for (entry, expected) in test_entries.iter_mut().zip(expecting) {
+            db.prepend_list("test", entry.to_vec()).unwrap();
+
+            let result = db.read_list("test", 0, -1).unwrap();
+
+            assert_eq!(result, expected)
         }
     }
 }

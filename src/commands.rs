@@ -32,6 +32,7 @@ enum Command<'a> {
     Get(&'a str),
     Set(&'a str, &'a str, Option<Duration>, bool),
     Rpush(&'a str, &'a [String]),
+    Lpush(&'a str, &'a [String]),
     Lrange(&'a str, i32, i32),
 }
 
@@ -50,7 +51,10 @@ impl<'a> Command<'a> {
                 Some(val) => Ok(Resp::SimpleString(val)),
                 None => Ok(Resp::NullBulkString),
             },
-            Command::Rpush(key, value) => Ok(Resp::Integer(db.push_list(key, value)?)),
+            Command::Rpush(key, values) => Ok(Resp::Integer(db.push_list(key, values)?)),
+            Command::Lpush(key, values) => {
+                Ok(Resp::Integer(db.prepend_list(key, values.to_vec())?))
+            }
             Command::Lrange(key, start, end) => {
                 Ok(Resp::StringArray(db.read_list(key, *start, *end)?))
             }
@@ -92,6 +96,14 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
             parse_set_command(args)?.run_command(db)
         }
         "rpush" => Command::Rpush(
+            inputs[1],
+            &inputs[2..]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        )
+        .run_command(db),
+        "lpush" => Command::Lpush(
             inputs[1],
             &inputs[2..]
                 .iter()
