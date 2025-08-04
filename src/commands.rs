@@ -35,6 +35,7 @@ enum Command<'a> {
     Lpush(&'a str, &'a [String]),
     Lrange(&'a str, i32, i32),
     Llen(&'a str),
+    Lpop(&'a str, Option<usize>),
 }
 
 impl<'a> Command<'a> {
@@ -60,6 +61,18 @@ impl<'a> Command<'a> {
                 Ok(Resp::StringArray(db.read_list(key, *start, *end)?))
             }
             Command::Llen(key) => Ok(Resp::Integer(db.get_list_length(key)?)),
+            Command::Lpop(key, count) => {
+                let result = db.pop_first_list(key, *count)?;
+                if let Some(list) = result {
+                    if list.len() == 1 {
+                        Ok(Resp::BulkString(list[0].clone()))
+                    } else {
+                        Ok(Resp::StringArray(list))
+                    }
+                } else {
+                    Ok(Resp::NullBulkString)
+                }
+            }
         }
     }
 }
@@ -122,6 +135,20 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
             Command::Lrange(args[0], args[1].parse()?, args[2].parse()?).run_command(db)
         }
         "llen" => Command::Llen(inputs[1]).run_command(db),
+        "lpop" => {
+            let args = &inputs[1..];
+            if args.len() > 2 {
+                return Err(CommandError::WrongNumArgs("lpop".to_string()));
+            }
+
+            let count: Option<usize> = if args.len() == 2 {
+                Some(args[1].parse::<usize>()?)
+            } else {
+                None
+            };
+
+            Command::Lpop(args[0], count).run_command(db)
+        }
 
         _ => Err(CommandError::InvalidCommand(inputs[0].to_string())),
     }

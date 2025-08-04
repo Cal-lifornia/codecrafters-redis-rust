@@ -102,6 +102,25 @@ impl RedisDatabase {
         }
     }
 
+    pub fn pop_first_list(
+        &self,
+        key: &str,
+        count: Option<usize>,
+    ) -> Result<Option<Vec<String>>, DatabaseError> {
+        let mut db = self.0.write()?;
+        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+            if let Some(count) = count {
+                let mut result = list.split_off(count);
+                std::mem::swap(&mut result, list);
+                Ok(Some(result))
+            } else {
+                Ok(Some([list.remove(0)].to_vec()))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
         let expired = {
             let db = self.0.read()?;
@@ -250,6 +269,32 @@ mod tests {
 
             let result = db.get_list_length(format!("test{i}").as_str()).unwrap();
             assert_eq!(result, expected)
+        }
+    }
+
+    #[test]
+    fn test_pop_first_list() {
+        let db = RedisDatabase::init();
+
+        let test_entry = [
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ];
+
+        let test_count = [None, Some(2usize)];
+
+        let expecting = [
+            vec!["a".to_string()],
+            vec!["b".to_string(), "c".to_string()],
+        ];
+
+        db.push_list("test", &test_entry).unwrap();
+
+        for (expected, count) in expecting.iter().zip(test_count) {
+            let result = db.pop_first_list("test", count).unwrap();
+            assert_eq!(result, Some(expected.clone()))
         }
     }
 }
