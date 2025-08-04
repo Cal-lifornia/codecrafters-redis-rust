@@ -109,7 +109,8 @@ impl RedisDatabase {
     ) -> Result<Option<Vec<String>>, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            if let Some(count) = count {
+            if let Some(mut count) = count {
+                count = count.min(list.len());
                 let mut result = list.split_off(count);
                 std::mem::swap(&mut result, list);
                 Ok(Some(result))
