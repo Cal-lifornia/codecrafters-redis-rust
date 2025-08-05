@@ -41,6 +41,7 @@ impl<'a> RedisDatabase<'a> {
     pub fn clone_sender(&self) -> mpsc::Sender<RedisCommand<'a>> {
         self.sender.clone()
     }
+
     pub async fn handle_receiver(&mut self) {
         while let Some(command) = self.receiver.recv().await {
             use RedisCommand::*;
@@ -92,6 +93,28 @@ impl<'a> RedisDatabase<'a> {
 }
 
 impl Database {
+    fn delete_expired_entries(&self) -> Result<(), DatabaseError> {
+        let mut db = self.0.write()?;
+        let keys = self.get_expired_entries()?;
+        for key in keys {
+            db.remove(&key).unwrap();
+        }
+        Ok(())
+    }
+    fn get_expired_entries(&self) -> Result<Vec<String>, DatabaseError> {
+        let db = self.0.read()?;
+        Ok(db
+            .iter()
+            .filter(|(key, val)| {
+                if let DatabaseEntry::String(entry) = val {
+                    entry.is_expired()
+                } else {
+                    false
+                }
+            })
+            .map(|(key, _)| key.clone())
+            .collect())
+    }
     pub fn set_string(
         &self,
         key: &str,
