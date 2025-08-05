@@ -49,42 +49,42 @@ impl<'a> RedisDatabase<'a> {
                 Get {
                     key,
                     responder: resp,
-                } => resp.send(self.db.get_string(key)).unwrap(),
+                } => resp.send(self.db.get_string(&key)).unwrap(),
 
                 Set {
-                    key,
-                    value,
-                    expiry,
-                    keep_ttl,
+                    args,
                     responder: resp,
                 } => resp
-                    .send(self.db.set_string(key, value, expiry, keep_ttl))
+                    .send(
+                        self.db
+                            .set_string(&args.key, &args.value, args.expiry, args.keep_ttl),
+                    )
                     .unwrap(),
                 Rpush {
                     key,
                     values,
                     responder: resp,
-                } => resp.send(self.db.push_list(key, values)).unwrap(),
+                } => resp.send(self.db.push_list(&key, &values)).unwrap(),
                 Lpush {
                     key,
                     values,
                     responder: resp,
-                } => resp.send(self.db.prepend_list(key, values)).unwrap(),
+                } => resp.send(self.db.prepend_list(&key, &values)).unwrap(),
                 Lrange {
                     key,
                     start,
                     end,
                     responder: resp,
-                } => resp.send(self.db.read_list(key, start, end)).unwrap(),
+                } => resp.send(self.db.read_list(&key, start, end)).unwrap(),
                 Llen {
                     key,
                     responder: resp,
-                } => resp.send(self.db.get_list_length(key)).unwrap(),
+                } => resp.send(self.db.get_list_length(&key)).unwrap(),
                 Lpop {
                     key,
                     count,
                     responder: resp,
-                } => resp.send(self.db.pop_first_list(key, count)).unwrap(),
+                } => resp.send(self.db.pop_first_list(&key, count)).unwrap(),
                 Echo(_) | Ping => unreachable!(),
             }
         }
@@ -139,7 +139,7 @@ impl Database {
         Ok(None)
     }
 
-    pub fn push_list(&self, key: &str, values: &[&str]) -> Result<i32, DatabaseError> {
+    pub fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             list.extend(
@@ -158,7 +158,7 @@ impl Database {
         }
     }
 
-    pub fn prepend_list(&self, key: &str, values: &[&str]) -> Result<i32, DatabaseError> {
+    pub fn prepend_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             for value in values {
@@ -229,9 +229,9 @@ impl Database {
 
     // pub fn blocking_pop_first_list(
     //     &self,
-    //     keys: &[&str],
+    //     keys: &[String],
     //     timeout: usize
-    // )
+    // ) -> Result<>
 }
 
 #[derive(Debug, Clone)]
@@ -298,13 +298,13 @@ mod tests {
     fn test_read_list() {
         let db = Database::default();
         let test_entry = vec![
-            "pear",
-            "apple",
-            "banana",
-            "orange",
-            "blueberry",
-            "strawberry",
-            "raspberry",
+            "pear".to_string(),
+            "apple".to_string(),
+            "banana".to_string(),
+            "orange".to_string(),
+            "blueberry".to_string(),
+            "strawberry".to_string(),
+            "raspberry".to_string(),
         ];
 
         db.push_list("test", &test_entry).unwrap();
@@ -321,7 +321,10 @@ mod tests {
     #[test]
     fn test_prepend_list() {
         let db = Database::default();
-        let mut test_entries = [vec!["a", "b", "c"], vec!["d"]];
+        let mut test_entries = [
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            vec!["d".to_string()],
+        ];
 
         let expecting = vec![
             vec!["c".to_string(), "b".to_string(), "a".to_string()],
@@ -345,7 +348,10 @@ mod tests {
     fn test_get_list_length() {
         let db = Database::default();
 
-        let test_entries = [vec!["a", "b", "c"], vec!["d"]];
+        let test_entries = [
+            vec!["a".to_string(), "b".to_string(), "c".to_string()],
+            vec!["d".to_string()],
+        ];
 
         let expecting = [3, 1, 0];
 
@@ -361,7 +367,12 @@ mod tests {
     fn test_pop_first_list() {
         let db = Database::default();
 
-        let test_entry = ["a", "b", "c", "d"];
+        let test_entry = [
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "d".to_string(),
+        ];
 
         let test_count = [None, Some(2usize)];
 

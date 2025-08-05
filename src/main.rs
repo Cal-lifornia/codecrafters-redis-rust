@@ -7,5 +7,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Uncomment this block to pass the first stage
     //
-    redis::init("6379").unwrap();
+    redis::init("127.0.0.1:6379").await
 }

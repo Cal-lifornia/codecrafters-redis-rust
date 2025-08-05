@@ -1,7 +1,5 @@
-use std::io::Write;
-
+use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub type RespResult<'a> = std::result::Result<(Resp, &'a [u8]), RespError>;
 
@@ -42,105 +40,62 @@ pub enum Resp {
 }
 
 impl Resp {
-    pub fn write_to_writer<W>(&self, writer: &mut W) -> Result<(), RespError>
-    where
-        W: Write,
-    {
-        match self {
-            Resp::SimpleString(s) => {
-                writer.write_all(b"+")?;
-                writer.write_all(s.as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-            }
-            Resp::SimpleError(s) => {
-                writer.write_all(b"-")?;
-                writer.write_all(s.as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-            }
-            Resp::Integer(i) => {
-                writer.write_all(b":")?;
-                writer.write_all(format!("{i}").as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-            }
-            Resp::BulkString(s) => {
-                writer.write_all(b"$")?;
-                writer.write_all(s.len().to_string().as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-                writer.write_all(s.as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-            }
-            Resp::NullBulkString => {
-                writer.write_all(b"$-1")?;
-                writer.write_all(&[CR, LF])?;
-            }
-            Resp::Array(v) => {
-                writer.write_all(b"*")?;
-                writer.write_all(v.len().to_string().as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-                for resp in v {
-                    resp.write_to_writer(writer)?;
-                }
-            }
-            Resp::StringArray(s) => {
-                writer.write_all(b"*")?;
-                writer.write_all(s.len().to_string().as_bytes())?;
-                writer.write_all(&[CR, LF])?;
-                for item in s {
-                    Resp::BulkString(item.to_string()).write_to_writer(writer)?;
-                }
-            }
-        };
-        Ok(())
+    pub fn to_bytes(self) -> Bytes {
+        self.into()
     }
-    pub async fn write_to_async_writer<Writer>(&self, writer: &mut Writer) -> Result<(), RespError>
-    where
-        Writer: AsyncWrite + Unpin,
-    {
-        match self {
-            Resp::SimpleString(s) => {
-                writer.write_all(b"+").await?;
-                writer.write_all(s.as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+}
+
+impl From<Resp> for Bytes {
+    fn from(val: Resp) -> Self {
+        use Resp::*;
+        let mut buf = BytesMut::new();
+        match val {
+            SimpleString(s) => {
+                buf.put_u8(b'+');
+                buf.put(s.as_bytes());
+                buf.put_slice(&[CR, LF]);
             }
-            Resp::SimpleError(s) => {
-                writer.write_all(b"-").await?;
-                writer.write_all(s.as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+            SimpleError(s) => {
+                buf.put_u8(b'-');
+                buf.put(s.as_bytes());
+                buf.put_slice(&[CR, LF]);
             }
-            Resp::Integer(i) => {
-                writer.write_all(b":").await?;
-                writer.write_all(format!("{i}").as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+            Integer(i) => {
+                buf.put_u8(b':');
+                buf.put(format!("{i}").as_bytes());
+                buf.put_slice(&[CR, LF]);
             }
-            Resp::BulkString(s) => {
-                writer.write_all(b"$").await?;
-                writer.write_all(s.len().to_string().as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
-                writer.write_all(s.as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+            BulkString(s) => {
+                buf.put_u8(b'$');
+                buf.put(s.len().to_string().as_bytes());
+                buf.put_slice(&[CR, LF]);
+                buf.put(s.as_bytes());
+                buf.put_slice(&[CR, LF]);
             }
-            Resp::NullBulkString => {
-                writer.write_all(b"$-1").await?;
-                writer.write_all(&[CR, LF]).await?;
+            NullBulkString => {
+                buf.put(&b"$-1"[..]);
+                buf.put_slice(&[CR, LF]);
             }
-            Resp::Array(v) => {
-                writer.write_all(b"*").await?;
-                writer.write_all(v.len().to_string().as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+            Array(v) => {
+                buf.put_u8(b'*');
+                buf.put(v.len().to_string().as_bytes());
+                buf.put_slice(&[CR, LF]);
                 for resp in v {
-                    Box::pin(resp.write_to_async_writer(writer));
+                    let array_buf: Bytes = resp.into();
+                    buf.put(array_buf);
                 }
             }
-            Resp::StringArray(s) => {
-                writer.write_all(b"*").await;
-                writer.write_all(s.len().to_string().as_bytes()).await?;
-                writer.write_all(&[CR, LF]).await?;
+            StringArray(s) => {
+                buf.put_u8(b'*');
+                buf.put(s.len().to_string().as_bytes());
+                buf.put_slice(&[CR, LF]);
                 for item in s {
-                    Box::pin(Resp::BulkString(item.to_string()).write_to_async_writer(writer));
+                    let string_buf: Bytes = BulkString(item.to_string()).into();
+                    buf.put(string_buf);
                 }
             }
-        };
-        Ok(())
+        }
+        buf.into()
     }
 }
 
@@ -221,6 +176,18 @@ fn parse_array(data: &[u8]) -> RespResult {
     }
 
     Ok((Resp::Array(results), leftovers))
+}
+
+pub fn parse_string_array(contents: Vec<Resp>) -> Result<Vec<String>, RespError> {
+    let mut result: Vec<String> = vec![];
+    for arg in contents {
+        if let Resp::BulkString(val) = arg {
+            result.push(val);
+        } else {
+            return Err(RespError::IncorrectFormat);
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
