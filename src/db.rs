@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{PoisonError, RwLock},
     time::{Duration, Instant},
 };
@@ -47,26 +47,37 @@ impl RedisDatabase {
         Ok(())
     }
 
-    pub fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
+    pub fn push_list(&self, key: &str, values: &[&str]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            list.extend_from_slice(values);
+            list.extend(
+                values
+                    .iter()
+                    .map(|val| val.to_string())
+                    .collect::<VecDeque<String>>(),
+            );
             Ok(list.len() as i32)
         } else {
-            db.insert(key.to_string(), DatabaseEntry::List(values.to_vec()));
+            db.insert(
+                key.to_string(),
+                DatabaseEntry::List(values.iter().map(|val| val.to_string()).collect()),
+            );
             Ok(values.len() as i32)
         }
     }
 
-    pub fn prepend_list(&self, key: &str, values: Vec<String>) -> Result<i32, DatabaseError> {
+    pub fn prepend_list(&self, key: &str, values: &[&str]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
-        let mut reversed = values.clone();
-        reversed.reverse();
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            *list = [reversed, list.to_vec()].concat();
+            for value in values {
+                list.push_front(value.to_string());
+            }
             Ok(list.len() as i32)
         } else {
-            db.insert(key.to_string(), DatabaseEntry::List(reversed));
+            db.insert(
+                key.to_string(),
+                DatabaseEntry::List(values.iter().rev().map(|val| val.to_string()).collect()),
+            );
             Ok(values.len() as i32)
         }
     }
@@ -87,7 +98,7 @@ impl RedisDatabase {
                 return Ok([].to_vec());
             }
 
-            Ok(list[start..=end].to_vec())
+            Ok(list.range(start..=end).cloned().collect())
         } else {
             Ok([].to_vec())
         }
@@ -111,11 +122,13 @@ impl RedisDatabase {
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             if let Some(mut count) = count {
                 count = count.min(list.len());
-                let mut result = list.split_off(count);
-                std::mem::swap(&mut result, list);
-                Ok(Some(result))
+                let mut results: Vec<String> = vec![];
+                for _ in 0..count {
+                    results.push(list.pop_front().unwrap());
+                }
+                Ok(Some(results))
             } else {
-                Ok(Some([list.remove(0)].to_vec()))
+                Ok(Some(vec![list.pop_front().unwrap()]))
             }
         } else {
             Ok(None)
@@ -147,7 +160,7 @@ impl RedisDatabase {
 #[derive(Debug, Clone)]
 pub enum DatabaseEntry {
     String(DatabaseString),
-    List(Vec<String>),
+    List(VecDeque<String>),
 }
 
 #[derive(Debug, Default, Clone)]
@@ -208,13 +221,13 @@ mod tests {
     fn test_read_list() {
         let db = RedisDatabase::init();
         let test_entry = vec![
-            "pear".to_string(),
-            "apple".to_string(),
-            "banana".to_string(),
-            "orange".to_string(),
-            "blueberry".to_string(),
-            "strawberry".to_string(),
-            "raspberry".to_string(),
+            "pear",
+            "apple",
+            "banana",
+            "orange",
+            "blueberry",
+            "strawberry",
+            "raspberry",
         ];
 
         db.push_list("test", &test_entry).unwrap();
@@ -231,10 +244,7 @@ mod tests {
     #[test]
     fn test_prepend_list() {
         let db = RedisDatabase::init();
-        let mut test_entries = [
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            vec!["d".to_string()],
-        ];
+        let mut test_entries = [vec!["a", "b", "c"], vec!["d"]];
 
         let expecting = vec![
             vec!["c".to_string(), "b".to_string(), "a".to_string()],
@@ -247,7 +257,7 @@ mod tests {
         ];
 
         for (entry, expected) in test_entries.iter_mut().zip(expecting) {
-            db.prepend_list("test", entry.to_vec()).unwrap();
+            db.prepend_list("test", entry).unwrap();
 
             let result = db.read_list("test", 0, -1).unwrap();
 
@@ -258,10 +268,7 @@ mod tests {
     fn test_get_list_length() {
         let db = RedisDatabase::init();
 
-        let test_entries = [
-            vec!["a".to_string(), "b".to_string(), "c".to_string()],
-            vec!["d".to_string()],
-        ];
+        let test_entries = [vec!["a", "b", "c"], vec!["d"]];
 
         let expecting = [3, 1, 0];
 
@@ -277,12 +284,7 @@ mod tests {
     fn test_pop_first_list() {
         let db = RedisDatabase::init();
 
-        let test_entry = [
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
-            "d".to_string(),
-        ];
+        let test_entry = ["a", "b", "c", "d"];
 
         let test_count = [None, Some(2usize)];
 

@@ -31,8 +31,8 @@ enum Command<'a> {
     Ping,
     Get(&'a str),
     Set(&'a str, &'a str, Option<Duration>, bool),
-    Rpush(&'a str, &'a [String]),
-    Lpush(&'a str, &'a [String]),
+    Rpush(&'a str, &'a [&'a str]),
+    Lpush(&'a str, &'a [&'a str]),
     Lrange(&'a str, i32, i32),
     Llen(&'a str),
     Lpop(&'a str, Option<usize>),
@@ -54,9 +54,7 @@ impl<'a> Command<'a> {
                 None => Ok(Resp::NullBulkString),
             },
             Command::Rpush(key, values) => Ok(Resp::Integer(db.push_list(key, values)?)),
-            Command::Lpush(key, values) => {
-                Ok(Resp::Integer(db.prepend_list(key, values.to_vec())?))
-            }
+            Command::Lpush(key, values) => Ok(Resp::Integer(db.prepend_list(key, values)?)),
             Command::Lrange(key, start, end) => {
                 Ok(Resp::StringArray(db.read_list(key, *start, *end)?))
             }
@@ -110,22 +108,8 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
             let args = &inputs[1..];
             parse_set_command(args)?.run_command(db)
         }
-        "rpush" => Command::Rpush(
-            inputs[1],
-            &inputs[2..]
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>(),
-        )
-        .run_command(db),
-        "lpush" => Command::Lpush(
-            inputs[1],
-            &inputs[2..]
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>(),
-        )
-        .run_command(db),
+        "rpush" => Command::Rpush(inputs[1], &inputs[2..]).run_command(db),
+        "lpush" => Command::Lpush(inputs[1], &inputs[2..]).run_command(db),
         "lrange" => {
             let args = &inputs[1..];
             if args.len() > 3 {
