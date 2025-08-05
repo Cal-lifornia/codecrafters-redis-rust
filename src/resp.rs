@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use thiserror::Error;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 pub type RespResult<'a> = std::result::Result<(Resp, &'a [u8]), RespError>;
 
@@ -86,6 +87,56 @@ impl Resp {
                 writer.write_all(&[CR, LF])?;
                 for item in s {
                     Resp::BulkString(item.to_string()).write_to_writer(writer)?;
+                }
+            }
+        };
+        Ok(())
+    }
+    pub async fn write_to_async_writer<Writer>(&self, writer: &mut Writer) -> Result<(), RespError>
+    where
+        Writer: AsyncWrite + Unpin,
+    {
+        match self {
+            Resp::SimpleString(s) => {
+                writer.write_all(b"+").await?;
+                writer.write_all(s.as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+            }
+            Resp::SimpleError(s) => {
+                writer.write_all(b"-").await?;
+                writer.write_all(s.as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+            }
+            Resp::Integer(i) => {
+                writer.write_all(b":").await?;
+                writer.write_all(format!("{i}").as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+            }
+            Resp::BulkString(s) => {
+                writer.write_all(b"$").await?;
+                writer.write_all(s.len().to_string().as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+                writer.write_all(s.as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+            }
+            Resp::NullBulkString => {
+                writer.write_all(b"$-1").await?;
+                writer.write_all(&[CR, LF]).await?;
+            }
+            Resp::Array(v) => {
+                writer.write_all(b"*").await?;
+                writer.write_all(v.len().to_string().as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+                for resp in v {
+                    Box::pin(resp.write_to_async_writer(writer));
+                }
+            }
+            Resp::StringArray(s) => {
+                writer.write_all(b"*").await;
+                writer.write_all(s.len().to_string().as_bytes()).await?;
+                writer.write_all(&[CR, LF]).await?;
+                for item in s {
+                    Box::pin(Resp::BulkString(item.to_string()).write_to_async_writer(writer));
                 }
             }
         };

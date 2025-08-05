@@ -5,22 +5,93 @@ use std::{
 };
 
 use thiserror::Error;
+use tokio::sync::mpsc;
 
-pub struct RedisDatabase(RwLock<HashMap<String, DatabaseEntry>>);
+use crate::commands::RedisCommand;
 
-impl RedisDatabase {
-    pub fn init() -> Self {
-        Self::default()
-    }
-}
+struct Database(RwLock<HashMap<String, DatabaseEntry>>);
 
-impl Default for RedisDatabase {
+impl Default for Database {
     fn default() -> Self {
         Self(RwLock::new(HashMap::new()))
     }
 }
 
-impl RedisDatabase {
+pub struct RedisDatabase<'a> {
+    db: Database,
+    sender: mpsc::Sender<RedisCommand<'a>>,
+    receiver: mpsc::Receiver<RedisCommand<'a>>,
+}
+
+impl<'a> Default for RedisDatabase<'a> {
+    fn default() -> Self {
+        let (sender, receiver) = mpsc::channel(32);
+        Self {
+            db: Database::default(),
+            sender,
+            receiver,
+        }
+    }
+}
+
+impl<'a> RedisDatabase<'a> {
+    pub fn init() -> Self {
+        Self::default()
+    }
+    pub fn clone_sender(&self) -> mpsc::Sender<RedisCommand<'a>> {
+        self.sender.clone()
+    }
+    pub async fn handle_receiver(&mut self) {
+        while let Some(command) = self.receiver.recv().await {
+            use RedisCommand::*;
+
+            match command {
+                Get {
+                    key,
+                    responder: resp,
+                } => resp.send(self.db.get_string(key)).unwrap(),
+
+                Set {
+                    key,
+                    value,
+                    expiry,
+                    keep_ttl,
+                    responder: resp,
+                } => resp
+                    .send(self.db.set_string(key, value, expiry, keep_ttl))
+                    .unwrap(),
+                Rpush {
+                    key,
+                    values,
+                    responder: resp,
+                } => resp.send(self.db.push_list(key, values)).unwrap(),
+                Lpush {
+                    key,
+                    values,
+                    responder: resp,
+                } => resp.send(self.db.prepend_list(key, values)).unwrap(),
+                Lrange {
+                    key,
+                    start,
+                    end,
+                    responder: resp,
+                } => resp.send(self.db.read_list(key, start, end)).unwrap(),
+                Llen {
+                    key,
+                    responder: resp,
+                } => resp.send(self.db.get_list_length(key)).unwrap(),
+                Lpop {
+                    key,
+                    count,
+                    responder: resp,
+                } => resp.send(self.db.pop_first_list(key, count)).unwrap(),
+                Echo(_) | Ping => unreachable!(),
+            }
+        }
+    }
+}
+
+impl Database {
     pub fn set_string(
         &self,
         key: &str,
@@ -45,6 +116,27 @@ impl RedisDatabase {
             DatabaseEntry::String(DatabaseString::new(value, expiry)),
         );
         Ok(())
+    }
+
+    pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+        let expired = {
+            let db = self.0.read()?;
+            if let Some(DatabaseEntry::String(entry)) = db.get(key) {
+                if !entry.is_expired() {
+                    return Ok(Some(entry.value().to_string()));
+                } else {
+                    true
+                }
+            } else {
+                return Ok(None);
+            }
+        };
+
+        if expired {
+            let mut db = self.0.write()?;
+            db.remove(key);
+        }
+        Ok(None)
     }
 
     pub fn push_list(&self, key: &str, values: &[&str]) -> Result<i32, DatabaseError> {
@@ -135,26 +227,11 @@ impl RedisDatabase {
         }
     }
 
-    pub fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
-        let expired = {
-            let db = self.0.read()?;
-            if let Some(DatabaseEntry::String(entry)) = db.get(key) {
-                if !entry.is_expired() {
-                    return Ok(Some(entry.value().to_string()));
-                } else {
-                    true
-                }
-            } else {
-                return Ok(None);
-            }
-        };
-
-        if expired {
-            let mut db = self.0.write()?;
-            db.remove(key);
-        }
-        Ok(None)
-    }
+    // pub fn blocking_pop_first_list(
+    //     &self,
+    //     keys: &[&str],
+    //     timeout: usize
+    // )
 }
 
 #[derive(Debug, Clone)]
@@ -219,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_read_list() {
-        let db = RedisDatabase::init();
+        let db = Database::default();
         let test_entry = vec![
             "pear",
             "apple",
@@ -243,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_prepend_list() {
-        let db = RedisDatabase::init();
+        let db = Database::default();
         let mut test_entries = [vec!["a", "b", "c"], vec!["d"]];
 
         let expecting = vec![
@@ -266,7 +343,7 @@ mod tests {
     }
     #[test]
     fn test_get_list_length() {
-        let db = RedisDatabase::init();
+        let db = Database::default();
 
         let test_entries = [vec!["a", "b", "c"], vec!["d"]];
 
@@ -282,7 +359,7 @@ mod tests {
 
     #[test]
     fn test_pop_first_list() {
-        let db = RedisDatabase::init();
+        let db = Database::default();
 
         let test_entry = ["a", "b", "c", "d"];
 

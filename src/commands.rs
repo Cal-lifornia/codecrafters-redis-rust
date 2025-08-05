@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use thiserror::Error;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     db::{DatabaseError, RedisDatabase},
@@ -25,41 +26,76 @@ pub enum CommandError {
     DBError(#[from] DatabaseError),
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum Command<'a> {
+#[derive(Debug)]
+pub enum RedisCommand<'a> {
     Echo(&'a str),
     Ping,
-    Get(&'a str),
-    Set(&'a str, &'a str, Option<Duration>, bool),
-    Rpush(&'a str, &'a [&'a str]),
-    Lpush(&'a str, &'a [&'a str]),
-    Lrange(&'a str, i32, i32),
-    Llen(&'a str),
-    Lpop(&'a str, Option<usize>),
+    Get {
+        key: &'a str,
+        responder: Responder<Option<String>>,
+    },
+    Set {
+        key: &'a str,
+        value: &'a str,
+        expiry: Option<Duration>,
+        keep_ttl: bool,
+        responder: Responder<()>,
+    },
+    Rpush {
+        key: &'a str,
+        values: &'a [&'a str],
+        responder: Responder<i32>,
+    },
+    Lpush {
+        key: &'a str,
+        values: &'a [&'a str],
+        responder: Responder<i32>,
+    },
+    Lrange {
+        key: &'a str,
+        start: i32,
+        end: i32,
+        responder: Responder<Vec<String>>,
+    },
+    Llen {
+        key: &'a str,
+        responder: Responder<i32>,
+    },
+    Lpop {
+        key: &'a str,
+        count: Option<usize>,
+        responder: Responder<Option<Vec<String>>>,
+    },
 }
 
-impl<'a> Command<'a> {
-    fn run_command(&self, db: Arc<RedisDatabase>) -> CommandResult {
+pub type Responder<T> = oneshot::Sender<Result<T, DatabaseError>>;
+
+impl<'a> RedisCommand<'a> {
+    fn run_command(&self, sender: &mpsc::Sender<RedisCommand<'a>>) -> CommandResult {
         match self {
-            Command::Echo(contents) => Ok(Resp::BulkString(contents.to_string())),
-            Command::Ping => Ok(Resp::SimpleString("PONG".to_string())),
-            Command::Set(key, value, expiry, keep_ttl) => {
-                match db.set_string(key, value, *expiry, *keep_ttl) {
-                    Ok(_) => Ok(Resp::SimpleString("OK".to_string())),
-                    Err(err) => Err(err.into()),
-                }
-            }
-            Command::Get(key) => match db.get_string(key)? {
+            RedisCommand::Echo(contents) => Ok(Resp::BulkString(contents.to_string())),
+            RedisCommand::Ping => Ok(Resp::SimpleString("PONG".to_string())),
+            RedisCommand::Set {
+                key,
+                value,
+                expiry,
+                keep_ttl,
+                responder: resp,
+            } => match db.set_string(key, value, *expiry, *keep_ttl) {
+                Ok(_) => Ok(Resp::SimpleString("OK".to_string())),
+                Err(err) => Err(err.into()),
+            },
+            RedisCommand::Get(key) => match db.get_string(key)? {
                 Some(val) => Ok(Resp::SimpleString(val)),
                 None => Ok(Resp::NullBulkString),
             },
-            Command::Rpush(key, values) => Ok(Resp::Integer(db.push_list(key, values)?)),
-            Command::Lpush(key, values) => Ok(Resp::Integer(db.prepend_list(key, values)?)),
-            Command::Lrange(key, start, end) => {
+            RedisCommand::Rpush(key, values) => Ok(Resp::Integer(db.push_list(key, values)?)),
+            RedisCommand::Lpush(key, values) => Ok(Resp::Integer(db.prepend_list(key, values)?)),
+            RedisCommand::Lrange(key, start, end) => {
                 Ok(Resp::StringArray(db.read_list(key, *start, *end)?))
             }
-            Command::Llen(key) => Ok(Resp::Integer(db.get_list_length(key)?)),
-            Command::Lpop(key, count) => {
+            RedisCommand::Llen(key) => Ok(Resp::Integer(db.get_list_length(key)?)),
+            RedisCommand::Lpop(key, count) => {
                 let result = db.pop_first_list(key, *count)?;
                 if let Some(list) = result {
                     if list.len() == 1 {
@@ -75,7 +111,10 @@ impl<'a> Command<'a> {
     }
 }
 
-pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandResult {
+pub async fn parse_array_command<'a>(
+    input: &[Resp],
+    sender: mpsc::Sender<RedisCommand<'a>>,
+) -> CommandResult {
     let mut inputs: Vec<&str> = vec![];
     for arg in input {
         if let Resp::BulkString(val) = arg {
@@ -89,36 +128,46 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
         "echo" => {
             let args = &inputs[1..];
             if args.len() == 1 {
-                Command::Echo(args[0]).run_command(db)
+                RedisCommand::Echo(args[0]).run_command(db)
             } else {
                 Err(CommandError::WrongNumArgs("echo".to_string()))
             }
         }
-        "ping" => Command::Ping.run_command(db),
+        "ping" => RedisCommand::Ping.run_command(db),
         "get" => {
             let args = &inputs[1..];
-
-            if !args.len() > 1 {
-                Command::Get(args[0]).run_command(db)
+            if !args.len() == 1 {
+                let (responder, receiver) = oneshot::channel();
+                sender
+                    .send(RedisCommand::Get {
+                        key: args[0],
+                        responder,
+                    })
+                    .await
+                    .unwrap();
+                match receiver.await.unwrap() {
+                    Ok(_) => Ok(Resp::BulkString("OK".to_string())),
+                    Err(err) => Err(err.into()),
+                }
             } else {
                 Err(CommandError::WrongNumArgs("get".to_string()))
             }
         }
         "set" => {
             let args = &inputs[1..];
-            parse_set_command(args)?.run_command(db)
+            parse_set_command(args)?
         }
-        "rpush" => Command::Rpush(inputs[1], &inputs[2..]).run_command(db),
-        "lpush" => Command::Lpush(inputs[1], &inputs[2..]).run_command(db),
+        "rpush" => RedisCommand::Rpush(inputs[1], &inputs[2..]).run_command(db),
+        "lpush" => RedisCommand::Lpush(inputs[1], &inputs[2..]).run_command(db),
         "lrange" => {
             let args = &inputs[1..];
             if args.len() > 3 {
                 return Err(CommandError::WrongNumArgs("lpush".to_string()));
             }
 
-            Command::Lrange(args[0], args[1].parse()?, args[2].parse()?).run_command(db)
+            RedisCommand::Lrange(args[0], args[1].parse()?, args[2].parse()?).run_command(db)
         }
-        "llen" => Command::Llen(inputs[1]).run_command(db),
+        "llen" => RedisCommand::Llen(inputs[1]).run_command(db),
         "lpop" => {
             let args = &inputs[1..];
             if args.len() > 2 {
@@ -131,21 +180,27 @@ pub fn parse_array_command(input: &[Resp], db: Arc<RedisDatabase>) -> CommandRes
                 None
             };
 
-            Command::Lpop(args[0], count).run_command(db)
+            RedisCommand::Lpop(args[0], count).run_command(db)
         }
 
         _ => Err(CommandError::InvalidCommand(inputs[0].to_string())),
     }
 }
 
-fn parse_set_command<'a>(args: &'a [&'a str]) -> Result<Command<'a>, CommandError> {
+fn parse_set_command<'a>(args: &'a [&'a str]) -> Result<RedisCommand<'a>, CommandError> {
     match args.len() {
-        2 => Ok(Command::Set(args[0], args[1], None, false)),
+        2 => Ok(RedisCommand::Set {
+            key: args[0],
+            value: args[1],
+            expiry: None,
+            keep_ttl: false,
+            responder: _,
+        }),
         3 | 4 => {
             let (key, val, expiry_opt) = (args[0], args[1], args[2]);
 
             if expiry_opt.to_lowercase().as_str() == "keepttl" {
-                return Ok(Command::Set(key, val, None, true));
+                return Ok(RedisCommand::Set(key, val, None, true));
             }
             if args.len() != 4 {
                 return Err(CommandError::InvalidInput);
@@ -159,51 +214,51 @@ fn parse_set_command<'a>(args: &'a [&'a str]) -> Result<Command<'a>, CommandErro
                 _ => return Err(CommandError::InvalidCommand(expiry_opt.to_string())),
             };
 
-            Ok(Command::Set(key, val, Some(expiry), false))
+            Ok(RedisCommand::Set(key, val, Some(expiry), false))
         }
         _ => Err(CommandError::WrongNumArgs("set".to_string())),
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_parse_set_command() {
-        // let test_commands = &[
-        //     vec![
-        //         Resp::BulkString("mango".to_string()),
-        //         Resp::BulkString("blueberry".to_string()),
-        //     ],
-        //     vec![
-        //         Resp::BulkString("mango".to_string()),
-        //         Resp::BulkString("blueberry".to_string()),
-        //         Resp::BulkString("px".to_string()),
-        //         Resp::BulkString("100".to_string()),
-        //     ],
-        // ];
-        let test_commands = &[
-            vec!["mango", "blueberry"],
-            vec!["mango", "blueberry", "px", "100"],
-        ];
+//     #[test]
+//     fn test_parse_set_command() {
+//         // let test_commands = &[
+//         //     vec![
+//         //         Resp::BulkString("mango".to_string()),
+//         //         Resp::BulkString("blueberry".to_string()),
+//         //     ],
+//         //     vec![
+//         //         Resp::BulkString("mango".to_string()),
+//         //         Resp::BulkString("blueberry".to_string()),
+//         //         Resp::BulkString("px".to_string()),
+//         //         Resp::BulkString("100".to_string()),
+//         //     ],
+//         // ];
+//         let test_commands = &[
+//             vec!["mango", "blueberry"],
+//             vec!["mango", "blueberry", "px", "100"],
+//         ];
 
-        let expected = &[
-            Command::Set("mango", "blueberry", None, false),
-            Command::Set(
-                "mango",
-                "blueberry",
-                Some(Duration::from_millis(100)),
-                false,
-            ),
-        ];
+//         let expected = &[
+//             RedisCommand::Set("mango", "blueberry", None, false),
+//             RedisCommand::Set(
+//                 "mango",
+//                 "blueberry",
+//                 Some(Duration::from_millis(100)),
+//                 false,
+//             ),
+//         ];
 
-        test_commands
-            .iter()
-            .zip(expected.iter())
-            .for_each(|(command, expecting)| {
-                let result = parse_set_command(command).unwrap();
-                assert_eq!(*expecting, result)
-            })
-    }
-}
+//         test_commands
+//             .iter()
+//             .zip(expected.iter())
+//             .for_each(|(command, expecting)| {
+//                 let result = parse_set_command(command).unwrap();
+//                 assert_eq!(*expecting, result)
+//             })
+//     }
+// }
