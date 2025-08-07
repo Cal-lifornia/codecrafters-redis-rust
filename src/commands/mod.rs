@@ -273,10 +273,7 @@ where
                     match timeout {
                         Ok(result) => result.unwrap(),
                         Err(_) => {
-                            out.write_all(
-                                &Resp::SimpleError("failed to get results".to_string()).to_bytes(),
-                            )
-                            .await?;
+                            out.write_all(&Resp::NullBulkString.to_bytes()).await?;
                             return Ok(());
                         }
                     }
