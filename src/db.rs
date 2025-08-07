@@ -117,7 +117,7 @@ impl RedisDatabase {
                         responder.send(Ok(Some(result))).unwrap();
                         return Ok(());
                     }
-                    let mut blockers = self.blocklist.lock().unwrap();
+                    let mut blockers = self.blocklist.lock().await;
                     blockers.entry(key.clone()).or_default().push(responder);
                 }
             }
