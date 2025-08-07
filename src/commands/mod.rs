@@ -267,6 +267,11 @@ where
                     .await?;
                 if let Some(results) = receiver.await.unwrap()? {
                     out.write_all(&Resp::BulkString(results).to_bytes()).await?;
+                } else {
+                    out.write_all(
+                        &Resp::SimpleError("failed to get results".to_string()).to_bytes(),
+                    )
+                    .await?;
                 }
             }
         }
