@@ -5,7 +5,7 @@ use std::{
 };
 
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::commands::{RedisCommand, Responder};
 
@@ -44,7 +44,7 @@ impl RedisDatabase {
         self.sender.clone()
     }
 
-    pub async fn handle_receiver(&self) -> Result<(), std::io::Error> {
+    pub async fn handle_receiver(&self) -> Result<(), DatabaseError> {
         while let Some(command) = self.receiver.lock().await.recv().await {
             use RedisCommand::*;
 
@@ -66,17 +66,8 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.push_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().await;
-                    if let Some(waiters) = blockers.get_mut(&key) {
-                        if !waiters.is_empty() {
-                            let sender = waiters.remove(0);
-                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
-                        }
-
-                        if waiters.is_empty() {
-                            blockers.remove(&key);
-                        }
-                    }
+                    let blockers = Arc::clone(&self.blocklist);
+                    self.db.handle_blockers(key.as_str(), blockers).await?;
                 }
                 Lpush {
                     key,
@@ -84,17 +75,6 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.prepend_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().await;
-                    if let Some(waiters) = blockers.get_mut(&key) {
-                        if !waiters.is_empty() {
-                            let sender = waiters.remove(0);
-                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
-                        }
-
-                        if waiters.is_empty() {
-                            blockers.remove(&key);
-                        }
-                    }
                 }
                 Lrange {
                     key,
@@ -272,6 +252,28 @@ impl Database {
         }
     }
 
+    async fn handle_blockers(
+        &self,
+        key: &str,
+        blocklist: DbBlocklist,
+    ) -> Result<(), DatabaseError> {
+        while self.get_list_length(key)? > 0 {
+            let mut blockers = blocklist.lock().await;
+            if let Some(waiters) = blockers.get_mut(key) {
+                if !waiters.is_empty() {
+                    let sender = waiters.remove(0);
+                    sender.send(self.pop_front_list_only(key)).unwrap();
+                }
+
+                if waiters.is_empty() {
+                    blockers.remove(key);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn pop_first_list(
         &self,
         key: &str,
@@ -347,13 +349,19 @@ impl DatabaseString {
 pub enum DatabaseError {
     #[error("database lock is poisoned")]
     LockPoisonError,
-    #[error("channel didn't return")]
-    MissingChannel,
+    #[error("channel failed to send")]
+    ChannelSendError(String),
 }
 
 impl<T> From<PoisonError<T>> for DatabaseError {
     fn from(_: PoisonError<T>) -> Self {
         Self::LockPoisonError
+    }
+}
+
+impl From<oneshot::error::RecvError> for DatabaseError {
+    fn from(value: oneshot::error::RecvError) -> Self {
+        Self::ChannelSendError(value.to_string())
     }
 }
 
