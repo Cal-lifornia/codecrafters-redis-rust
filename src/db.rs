@@ -110,8 +110,12 @@ impl RedisDatabase {
                     count,
                     responder,
                 } => match self.db.blocking_pop_first_list(key.as_str(), count).await {
-                    Ok(Some(result)) => responder.send(Ok(Some(result))).unwrap(),
+                    Ok(Some(result)) => {
+                        println!("OK SOME RESULT");
+                        responder.send(Ok(Some(result))).unwrap();
+                    }
                     Ok(None) => {
+                        println!("OK NONE");
                         let mut blockers = self.blocklist.lock().await;
                         if let Some(list) = blockers.get_mut(&key) {
                             list.push(responder);
@@ -311,7 +315,7 @@ impl Database {
             if !list.is_empty() {
                 if let Some(result) = self.pop_front_list_only(key).await? {
                     return Ok(Some(result));
-                };
+                }
             }
         }
         Ok(None)

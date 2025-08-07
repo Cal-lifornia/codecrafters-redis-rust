@@ -245,7 +245,7 @@ where
             };
         }
         "blpop" => {
-            if args.len() > 2 {
+            if !args.len() > 2 {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes(),
                 )
