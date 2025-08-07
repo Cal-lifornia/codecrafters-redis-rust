@@ -64,6 +64,7 @@ impl From<Resp> for Bytes {
                 buf.put_u8(b'-');
                 buf.put(s.as_bytes());
                 buf.put_slice(&[CR, LF]);
+                eprintln!("ERR {s}");
             }
             Integer(i) => {
                 buf.put_u8(b':');

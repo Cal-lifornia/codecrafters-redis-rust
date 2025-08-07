@@ -1,7 +1,7 @@
 use std::{io::Error, sync::Arc};
 
 use tokio::{
-    io::{AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
     sync::mpsc,
 };
@@ -24,7 +24,7 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             loop {
-                let n = match socket.try_read(&mut buf) {
+                let n = match socket.read(&mut buf).await {
                     Ok(0) => return,
                     Ok(n) => n,
                     Err(e) => {
