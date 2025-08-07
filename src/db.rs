@@ -1,11 +1,11 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, PoisonError, RwLock},
+    sync::{Arc, PoisonError, RwLock},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::commands::{RedisCommand, Responder};
 
@@ -24,7 +24,7 @@ pub struct RedisDatabase {
     blocklist: DbBlocklist,
 }
 
-type DbBlocklist = Arc<Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
+type DbBlocklist = Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
 
 impl Default for RedisDatabase {
     fn default() -> Self {
@@ -34,7 +34,7 @@ impl Default for RedisDatabase {
             db: Database::default(),
             sender,
             receiver,
-            blocklist: Arc::new(Mutex::new(HashMap::new())),
+            blocklist: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 }
@@ -44,7 +44,7 @@ impl RedisDatabase {
         self.sender.clone()
     }
 
-    pub async fn handle_receiver(&self) -> Result<(), std::io::Error> {
+    pub async fn handle_receiver(&self) -> Result<(), DatabaseError> {
         while let Some(command) = self.receiver.lock().await.recv().await {
             use RedisCommand::*;
 
@@ -66,17 +66,8 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.push_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().unwrap();
-                    if let Some(waiters) = blockers.get_mut(&key) {
-                        if !waiters.is_empty() {
-                            let sender = waiters.remove(0);
-                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
-                        }
-
-                        if waiters.is_empty() {
-                            blockers.remove(&key);
-                        }
-                    }
+                    let blockers = Arc::clone(&self.blocklist);
+                    self.db.handle_blockers(key.as_str(), blockers).await?;
                 }
                 Lpush {
                     key,
@@ -84,13 +75,6 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.prepend_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().unwrap();
-                    if let Some(waiters) = blockers.get_mut(&key) {
-                        if !waiters.is_empty() {
-                            let sender = waiters.remove(0);
-                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
-                        }
-                    }
                 }
                 Lrange {
                     key,
@@ -113,7 +97,7 @@ impl RedisDatabase {
                         responder.send(Ok(Some(result))).unwrap();
                         return Ok(());
                     }
-                    let mut blockers = self.blocklist.lock().unwrap();
+                    let mut blockers = self.blocklist.lock().await;
                     blockers.entry(key.clone()).or_default().push(responder);
                 }
             }
@@ -268,6 +252,31 @@ impl Database {
         }
     }
 
+    async fn handle_blockers(
+        &self,
+        key: &str,
+        blocklist: DbBlocklist,
+    ) -> Result<(), DatabaseError> {
+        println!("we are here");
+        let mut length = self.get_list_length(key)?;
+        while length > 0 {
+            let mut blockers = blocklist.lock().await;
+            if let Some(waiters) = blockers.get_mut(key) {
+                if !waiters.is_empty() {
+                    let sender = waiters.remove(0);
+                    sender.send(self.pop_front_list_only(key)).unwrap();
+                }
+
+                if waiters.is_empty() {
+                    blockers.remove(key);
+                    break;
+                }
+                length = self.get_list_length(key)?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn pop_first_list(
         &self,
         key: &str,
@@ -298,8 +307,9 @@ impl Database {
         let db = self.0.read()?;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             if !list.is_empty() {
-                let result = self.pop_first_list(key, None)?.unwrap();
-                return Ok(Some(result[0].clone()));
+                if let Some(result) = self.pop_front_list_only(key)? {
+                    return Ok(Some(result));
+                };
             }
         }
         Ok(None)
@@ -343,13 +353,19 @@ impl DatabaseString {
 pub enum DatabaseError {
     #[error("database lock is poisoned")]
     LockPoisonError,
-    #[error("channel didn't return")]
-    MissingChannel,
+    #[error("channel failed to send")]
+    ChannelSendError(String),
 }
 
 impl<T> From<PoisonError<T>> for DatabaseError {
     fn from(_: PoisonError<T>) -> Self {
         Self::LockPoisonError
+    }
+}
+
+impl From<oneshot::error::RecvError> for DatabaseError {
+    fn from(value: oneshot::error::RecvError) -> Self {
+        Self::ChannelSendError(value.to_string())
     }
 }
 
