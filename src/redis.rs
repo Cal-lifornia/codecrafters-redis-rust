@@ -42,11 +42,8 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
             }
         });
         tokio::spawn(async move {
-            loop {
-                if let Err(err) = db_clone.handle_receiver().await {
-                    eprintln!("ran into error: {err:?}");
-                    return;
-                }
+            if let Err(err) = db_clone.handle_receiver().await {
+                eprintln!("ran into error: {err:?}");
             }
         });
     }
