@@ -211,6 +211,7 @@ impl Database {
                 .for_each(|value| list.push_front(value.to_string()));
             let len = list.len();
             db.insert(key.to_string(), DatabaseEntry::List(list));
+            println!("len: {len}");
             Ok(len as i32)
         }
     }
