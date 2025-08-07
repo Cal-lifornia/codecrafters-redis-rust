@@ -257,7 +257,8 @@ impl Database {
         key: &str,
         blocklist: DbBlocklist,
     ) -> Result<(), DatabaseError> {
-        while self.get_list_length(key)? > 0 {
+        let mut length = self.get_list_length(key)?;
+        while length > 0 {
             let mut blockers = blocklist.lock().await;
             if let Some(waiters) = blockers.get_mut(key) {
                 if !waiters.is_empty() {
@@ -269,6 +270,7 @@ impl Database {
                     blockers.remove(key);
                     break;
                 }
+                length = self.get_list_length(key)?;
             }
         }
         Ok(())
