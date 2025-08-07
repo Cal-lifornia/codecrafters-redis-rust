@@ -304,8 +304,9 @@ impl Database {
         let db = self.0.read()?;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             if !list.is_empty() {
-                let result = self.pop_first_list(key, None)?.unwrap();
-                return Ok(Some(result[0].clone()));
+                if let Some(result) = self.pop_front_list_only(key)? {
+                    return Ok(Some(result));
+                };
             }
         }
         Ok(None)
