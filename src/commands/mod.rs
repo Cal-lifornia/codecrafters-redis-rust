@@ -245,11 +245,12 @@ where
             };
         }
         "blpop" => {
-            if !args.len() > 2 {
+            if args.len() > 2 {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes(),
                 )
                 .await?;
+            } else {
                 let (responder, receiver) = oneshot::channel();
 
                 let count = if args.len() == 2 {

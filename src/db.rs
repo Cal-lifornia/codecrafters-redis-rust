@@ -111,18 +111,15 @@ impl RedisDatabase {
                     responder,
                 } => match self.db.blocking_pop_first_list(key.as_str(), count).await {
                     Ok(Some(result)) => {
-                        println!("OK SOME RESULT");
                         responder.send(Ok(Some(result))).unwrap();
                     }
                     Ok(None) => {
-                        println!("OK NONE");
                         let mut blockers = self.blocklist.lock().await;
                         if let Some(list) = blockers.get_mut(&key) {
                             list.push(responder);
                         } else {
                             blockers.insert(key, vec![responder]);
                         }
-                        println!("initial blockers len {}", blockers.len())
                     }
                     Err(err) => responder.send(Err(err)).unwrap(),
                 },
@@ -326,7 +323,6 @@ impl Database {
         blocklist: &DbBlocklist,
     ) -> Result<(), DatabaseError> {
         let mut blockers = blocklist.lock().await;
-        println!("Blockers Len: {}", blockers.len());
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
                 let sender = waiters.remove(0);
