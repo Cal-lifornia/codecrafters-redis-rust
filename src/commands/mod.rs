@@ -47,7 +47,7 @@ pub enum RedisCommand {
     Blpop {
         key: String,
         count: usize,
-        responder: Responder<Option<String>>,
+        responder: Responder<Option<Vec<String>>>,
     },
 }
 pub type CommandResult = Result<Resp, CommandError>;
@@ -267,7 +267,8 @@ where
                     })
                     .await?;
                 if let Some(results) = receiver.await.unwrap()? {
-                    out.write_all(&Resp::BulkString(results).to_bytes()).await?;
+                    out.write_all(&Resp::StringArray(results).to_bytes())
+                        .await?;
                 } else {
                     out.write_all(
                         &Resp::SimpleError("failed to get results".to_string()).to_bytes(),

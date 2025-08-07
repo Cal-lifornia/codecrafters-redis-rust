@@ -24,7 +24,7 @@ pub struct RedisDatabase {
     blocklist: DbBlocklist,
 }
 
-type DbBlocklist = Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
+type DbBlocklist = Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<Vec<String>>>>>>>;
 
 impl Default for RedisDatabase {
     fn default() -> Self {
@@ -306,12 +306,12 @@ impl Database {
         &self,
         key: &str,
         _timeout: usize,
-    ) -> Result<Option<String>, DatabaseError> {
+    ) -> Result<Option<Vec<String>>, DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             if !list.is_empty() {
                 if let Some(result) = self.pop_front_list_only(key).await? {
-                    return Ok(Some(result));
+                    return Ok(Some(vec![key.to_string(), result]));
                 }
             }
         }
@@ -326,7 +326,16 @@ impl Database {
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
                 let sender = waiters.remove(0);
-                sender.send(self.pop_front_list_only(key).await).unwrap();
+                match self.pop_front_list_only(key).await? {
+                    Some(result) => {
+                        sender
+                            .send(Ok(Some(vec![key.to_string(), result])))
+                            .unwrap();
+                    }
+                    None => {
+                        sender.send(Ok(None)).unwrap();
+                    }
+                }
             }
 
             if waiters.is_empty() {
