@@ -20,8 +20,8 @@ impl Default for Database {
 
 pub struct RedisDatabase {
     db: Database,
-    sender: tokio::sync::Mutex<mpsc::Sender<RedisCommand>>,
-    receiver: mpsc::Receiver<RedisCommand>,
+    sender: mpsc::Sender<RedisCommand>,
+    receiver: tokio::sync::Mutex<mpsc::Receiver<RedisCommand>>,
     blocklist: DbBlocklist,
 }
 
@@ -30,7 +30,7 @@ type DbBlocklist = Arc<Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
 impl Default for RedisDatabase {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel(32);
-        let sender = tokio::sync::Mutex::new(sender);
+        let receiver = tokio::sync::Mutex::new(receiver);
         Self {
             db: Database::default(),
             sender,
@@ -41,12 +41,12 @@ impl Default for RedisDatabase {
 }
 
 impl RedisDatabase {
-    pub async fn clone_sender(&self) -> mpsc::Sender<RedisCommand> {
-        self.sender.lock().await.clone()
+    pub fn clone_sender(&self) -> mpsc::Sender<RedisCommand> {
+        self.sender.clone()
     }
 
-    pub async fn handle_receiver(&mut self) {
-        while let Some(command) = self.receiver.recv().await {
+    pub async fn handle_receiver(&self) -> Result<(), std::io::Error> {
+        while let Some(command) = self.receiver.lock().await.recv().await {
             use RedisCommand::*;
 
             match command {
@@ -112,13 +112,14 @@ impl RedisDatabase {
                 } => {
                     if let Ok(Some(result)) = self.db.blocking_pop_first_list(key.as_str(), count) {
                         responder.send(Ok(Some(result))).unwrap();
-                        return;
+                        return Ok(());
                     }
                     let mut blockers = self.blocklist.lock().unwrap();
                     blockers.entry(key.clone()).or_default().push(responder);
                 }
             }
         }
+        Ok(())
     }
 }
 

@@ -18,6 +18,7 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         let db = Arc::new(RedisDatabase::default());
+        let sender = db.clone_sender();
 
         let (mut socket, _) = listener.accept().await?;
         tokio::spawn(async move {
@@ -32,18 +33,21 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let sender = db.clone_sender().await;
-
                 let (_, mut writer) = socket.split();
 
-                if let Err(err) = parse_input(&mut writer, &buf[0..n], sender).await {
+                if let Err(err) = parse_input(&mut writer, &buf[0..n], sender.clone()).await {
                     eprintln!("ran into error: {err:?}");
                     return;
                 }
             }
         });
         tokio::spawn(async move {
-            db.handle_receiver();
+            loop {
+                if let Err(err) = db.handle_receiver().await {
+                    eprintln!("ran into error: {err:?}");
+                    return;
+                }
+            }
         });
     }
 }
