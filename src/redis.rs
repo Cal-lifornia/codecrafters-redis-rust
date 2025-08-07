@@ -15,12 +15,12 @@ use crate::{
 
 pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
+    let db = Arc::new(RedisDatabase::default());
 
     loop {
-        let db = Arc::new(RedisDatabase::default());
-        let sender = db.clone_sender();
-
         let (mut socket, _) = listener.accept().await?;
+        let db_clone = Arc::clone(&db);
+        let sender = db_clone.clone_sender();
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             loop {
@@ -43,7 +43,7 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
         });
         tokio::spawn(async move {
             loop {
-                if let Err(err) = db.handle_receiver().await {
+                if let Err(err) = db_clone.handle_receiver().await {
                     eprintln!("ran into error: {err:?}");
                     return;
                 }
