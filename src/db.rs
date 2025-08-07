@@ -258,20 +258,15 @@ impl Database {
         blocklist: DbBlocklist,
     ) -> Result<(), DatabaseError> {
         println!("we are here");
-        let mut length = self.get_list_length(key)?;
-        while length > 0 {
-            let mut blockers = blocklist.lock().await;
-            if let Some(waiters) = blockers.get_mut(key) {
-                if !waiters.is_empty() {
-                    let sender = waiters.remove(0);
-                    sender.send(self.pop_front_list_only(key)).unwrap();
-                }
+        let mut blockers = blocklist.lock().await;
+        if let Some(waiters) = blockers.get_mut(key) {
+            if !waiters.is_empty() {
+                let sender = waiters.remove(0);
+                sender.send(self.pop_front_list_only(key)).unwrap();
+            }
 
-                if waiters.is_empty() {
-                    blockers.remove(key);
-                    break;
-                }
-                length = self.get_list_length(key)?;
+            if waiters.is_empty() {
+                blockers.remove(key);
             }
         }
         Ok(())
