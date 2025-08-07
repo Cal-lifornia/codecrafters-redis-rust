@@ -172,7 +172,7 @@ where
             ctx.db_sender
                 .send(RedisCommand::Lpush {
                     key: args[0].clone(),
-                    values: args[2..].to_vec(),
+                    values: args[1..].to_vec(),
                     responder,
                 })
                 .await?;

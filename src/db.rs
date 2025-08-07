@@ -205,14 +205,11 @@ impl Database {
                 .for_each(|value| list.push_front(value.to_string()));
             Ok(list.len() as i32)
         } else {
-            let mut list = VecDeque::new();
-            values
-                .iter()
-                .for_each(|value| list.push_front(value.to_string()));
-            let len = list.len();
-            db.insert(key.to_string(), DatabaseEntry::List(list));
-            println!("len: {len}");
-            Ok(len as i32)
+            db.insert(
+                key.to_string(),
+                DatabaseEntry::List(values.iter().rev().map(|value| value.to_string()).collect()),
+            );
+            Ok(values.len() as i32)
         }
     }
 
