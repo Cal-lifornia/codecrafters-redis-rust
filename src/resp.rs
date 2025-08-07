@@ -46,7 +46,7 @@ impl Resp {
         self.into()
     }
     pub fn simple_error(input: impl Display) -> Self {
-        Self::SimpleError(format!("ERR {}", input))
+        Self::SimpleError(format!("ERR {input}"))
     }
 }
 

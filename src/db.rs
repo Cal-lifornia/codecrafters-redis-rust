@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    future::IntoFuture,
     sync::{Arc, Mutex, PoisonError, RwLock},
     time::{Duration, Instant},
 };
