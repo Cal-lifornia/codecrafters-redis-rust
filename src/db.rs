@@ -70,7 +70,9 @@ impl RedisDatabase {
                         .send(self.db.push_list(&key, &values).await)
                         .unwrap();
                     let blockers = Arc::clone(&self.blocklist);
-                    self.db.handle_blockers(key.as_str(), blockers).await?;
+                    self.db
+                        .handle_blockers(key.as_str(), &blockers.clone())
+                        .await?;
                 }
                 Lpush {
                     key,
@@ -81,7 +83,9 @@ impl RedisDatabase {
                         .send(self.db.prepend_list(&key, &values).await)
                         .unwrap();
                     let blockers = Arc::clone(&self.blocklist);
-                    self.db.handle_blockers(key.as_str(), blockers).await?;
+                    self.db
+                        .handle_blockers(key.as_str(), &blockers.clone())
+                        .await?;
                 }
                 Lrange {
                     key,
@@ -109,7 +113,12 @@ impl RedisDatabase {
                     Ok(Some(result)) => responder.send(Ok(Some(result))).unwrap(),
                     Ok(None) => {
                         let mut blockers = self.blocklist.lock().await;
-                        blockers.entry(key.clone()).or_default().push(responder);
+                        if let Some(list) = blockers.get_mut(&key) {
+                            list.push(responder);
+                        } else {
+                            blockers.insert(key, vec![responder]);
+                        }
+                        println!("initial blockers len {}", blockers.len())
                     }
                     Err(err) => responder.send(Err(err)).unwrap(),
                 },
@@ -273,9 +282,10 @@ impl Database {
     async fn handle_blockers(
         &self,
         key: &str,
-        blocklist: DbBlocklist,
+        blocklist: &DbBlocklist,
     ) -> Result<(), DatabaseError> {
         let mut blockers = blocklist.lock().await;
+        println!("Blockers Len: {}", blockers.len());
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
                 let sender = waiters.remove(0);
