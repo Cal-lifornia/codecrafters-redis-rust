@@ -111,9 +111,10 @@ impl RedisDatabase {
                     {
                         responder.send(Ok(Some(result))).unwrap();
                         return Ok(());
+                    } else {
+                        let mut blockers = self.blocklist.lock().await;
+                        blockers.entry(key.clone()).or_default().push(responder);
                     }
-                    let mut blockers = self.blocklist.lock().await;
-                    blockers.entry(key.clone()).or_default().push(responder);
                 }
             }
         }
@@ -277,7 +278,6 @@ impl Database {
         key: &str,
         blocklist: DbBlocklist,
     ) -> Result<(), DatabaseError> {
-        println!("we are here");
         let mut blockers = blocklist.lock().await;
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
