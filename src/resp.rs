@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -42,6 +44,9 @@ pub enum Resp {
 impl Resp {
     pub fn to_bytes(self) -> Bytes {
         self.into()
+    }
+    pub fn simple_error(input: impl Display) -> Self {
+        Self::SimpleError(format!("ERR {}", input))
     }
 }
 

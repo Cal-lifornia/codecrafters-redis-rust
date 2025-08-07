@@ -1,13 +1,14 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{PoisonError, RwLock},
+    future::IntoFuture,
+    sync::{Arc, Mutex, PoisonError, RwLock},
     time::{Duration, Instant},
 };
 
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-use crate::commands::RedisCommand;
+use crate::commands::{RedisCommand, Responder};
 
 struct Database(RwLock<HashMap<String, DatabaseEntry>>);
 
@@ -17,29 +18,31 @@ impl Default for Database {
     }
 }
 
-pub struct RedisDatabase<'a> {
+pub struct RedisDatabase {
     db: Database,
-    sender: mpsc::Sender<RedisCommand<'a>>,
-    receiver: mpsc::Receiver<RedisCommand<'a>>,
+    sender: tokio::sync::Mutex<mpsc::Sender<RedisCommand>>,
+    receiver: mpsc::Receiver<RedisCommand>,
+    blocklist: DbBlocklist,
 }
 
-impl<'a> Default for RedisDatabase<'a> {
+type DbBlocklist = Arc<Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
+
+impl Default for RedisDatabase {
     fn default() -> Self {
         let (sender, receiver) = mpsc::channel(32);
+        let sender = tokio::sync::Mutex::new(sender);
         Self {
             db: Database::default(),
             sender,
             receiver,
+            blocklist: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
-impl<'a> RedisDatabase<'a> {
-    pub fn init() -> Self {
-        Self::default()
-    }
-    pub fn clone_sender(&self) -> mpsc::Sender<RedisCommand<'a>> {
-        self.sender.clone()
+impl RedisDatabase {
+    pub async fn clone_sender(&self) -> mpsc::Sender<RedisCommand> {
+        self.sender.lock().await.clone()
     }
 
     pub async fn handle_receiver(&mut self) {
@@ -52,10 +55,7 @@ impl<'a> RedisDatabase<'a> {
                     responder: resp,
                 } => resp.send(self.db.get_string(&key)).unwrap(),
 
-                Set {
-                    args,
-                    responder: resp,
-                } => resp
+                Set { args, responder } => responder
                     .send(
                         self.db
                             .set_string(&args.key, &args.value, args.expiry, args.keep_ttl),
@@ -64,29 +64,59 @@ impl<'a> RedisDatabase<'a> {
                 Rpush {
                     key,
                     values,
-                    responder: resp,
-                } => resp.send(self.db.push_list(&key, &values)).unwrap(),
+                    responder,
+                } => {
+                    responder.send(self.db.push_list(&key, &values)).unwrap();
+                    let mut blockers = self.blocklist.lock().unwrap();
+                    if let Some(waiters) = blockers.get_mut(&key) {
+                        if !waiters.is_empty() {
+                            let sender = waiters.remove(0);
+                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
+                        }
+
+                        if waiters.is_empty() {
+                            blockers.remove(&key);
+                        }
+                    }
+                }
                 Lpush {
                     key,
                     values,
-                    responder: resp,
-                } => resp.send(self.db.prepend_list(&key, &values)).unwrap(),
+                    responder,
+                } => {
+                    responder.send(self.db.prepend_list(&key, &values)).unwrap();
+                    let mut blockers = self.blocklist.lock().unwrap();
+                    if let Some(waiters) = blockers.get_mut(&key) {
+                        if !waiters.is_empty() {
+                            let sender = waiters.remove(0);
+                            sender.send(self.db.pop_front_list_only(&key)).unwrap();
+                        }
+                    }
+                }
                 Lrange {
                     key,
                     start,
                     end,
-                    responder: resp,
-                } => resp.send(self.db.read_list(&key, start, end)).unwrap(),
-                Llen {
-                    key,
-                    responder: resp,
-                } => resp.send(self.db.get_list_length(&key)).unwrap(),
+                    responder,
+                } => responder.send(self.db.read_list(&key, start, end)).unwrap(),
+                Llen { key, responder } => responder.send(self.db.get_list_length(&key)).unwrap(),
                 Lpop {
                     key,
                     count,
-                    responder: resp,
-                } => resp.send(self.db.pop_first_list(&key, count)).unwrap(),
-                Echo(_) | Ping => unreachable!(),
+                    responder,
+                } => responder.send(self.db.pop_first_list(&key, count)).unwrap(),
+                Blpop {
+                    key,
+                    count,
+                    responder,
+                } => {
+                    if let Ok(Some(result)) = self.db.blocking_pop_first_list(key.as_str(), count) {
+                        responder.send(Ok(Some(result))).unwrap();
+                        return;
+                    }
+                    let mut blockers = self.blocklist.lock().unwrap();
+                    blockers.entry(key.clone()).or_default().push(responder);
+                }
             }
         }
     }
@@ -105,7 +135,7 @@ impl Database {
         let db = self.0.read()?;
         Ok(db
             .iter()
-            .filter(|(key, val)| {
+            .filter(|(_, val)| {
                 if let DatabaseEntry::String(entry) = val {
                     entry.is_expired()
                 } else {
@@ -228,6 +258,16 @@ impl Database {
         }
     }
 
+    fn pop_front_list_only(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+        let mut db = self.0.write()?;
+        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+            let result = list.pop_front();
+            Ok(result)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn pop_first_list(
         &self,
         key: &str,
@@ -250,11 +290,20 @@ impl Database {
         }
     }
 
-    // pub fn blocking_pop_first_list(
-    //     &self,
-    //     keys: &[String],
-    //     timeout: usize
-    // ) -> Result<>
+    pub fn blocking_pop_first_list(
+        &self,
+        key: &str,
+        _timeout: usize,
+    ) -> Result<Option<String>, DatabaseError> {
+        let db = self.0.read()?;
+        if let Some(DatabaseEntry::List(list)) = db.get(key) {
+            if !list.is_empty() {
+                let result = self.pop_first_list(key, None)?.unwrap();
+                return Ok(Some(result[0].clone()));
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -293,12 +342,14 @@ impl DatabaseString {
 #[derive(Debug, Error)]
 pub enum DatabaseError {
     #[error("database lock is poisoned")]
-    PoisonError,
+    LockPoisonError,
+    #[error("channel didn't return")]
+    MissingChannel,
 }
 
 impl<T> From<PoisonError<T>> for DatabaseError {
     fn from(_: PoisonError<T>) -> Self {
-        Self::PoisonError
+        Self::LockPoisonError
     }
 }
 

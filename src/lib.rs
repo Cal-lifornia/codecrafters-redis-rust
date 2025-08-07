@@ -4,6 +4,7 @@ use thiserror::Error;
 use crate::commands::CommandError;
 
 pub mod commands;
+pub mod context;
 pub mod db;
 pub mod redis;
 pub mod resp;

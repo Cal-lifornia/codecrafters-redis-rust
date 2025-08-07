@@ -1,4 +1,4 @@
-use std::io::Error;
+use std::{io::Error, sync::Arc};
 
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
@@ -8,6 +8,7 @@ use tokio::{
 
 use crate::{
     commands::{parse_array_command, RedisCommand},
+    context::Context,
     db::RedisDatabase,
     resp::{self, Resp},
 };
@@ -16,7 +17,7 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
 
     loop {
-        let db = RedisDatabase::default();
+        let db = Arc::new(RedisDatabase::default());
 
         let (mut socket, _) = listener.accept().await?;
         tokio::spawn(async move {
@@ -31,7 +32,7 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let sender = db.clone_sender();
+                let sender = db.clone_sender().await;
 
                 let (_, mut writer) = socket.split();
 
@@ -41,23 +42,25 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
+        tokio::spawn(async move {
+            db.handle_receiver();
+        });
     }
 }
 
-async fn parse_input<'a, Writer>(
-    writer: &mut Writer,
+async fn parse_input<Writer>(
+    out: &mut Writer,
     buf: &[u8],
-    sender: mpsc::Sender<RedisCommand<'a>>,
+    db_sender: mpsc::Sender<RedisCommand>,
 ) -> Result<(), std::io::Error>
 where
     Writer: AsyncWrite + Unpin,
 {
     if let (Resp::Array(contents), _) = resp::parse(buf).unwrap() {
-        match parse_array_command(contents, sender).await {
-            Ok(result) => writer.write_all(&result.to_bytes()).await,
+        match parse_array_command(out, contents, &Context { db_sender }).await {
+            Ok(_) => Ok(()),
             Err(err) => {
-                writer
-                    .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
+                out.write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
                     .await
             }
         }
