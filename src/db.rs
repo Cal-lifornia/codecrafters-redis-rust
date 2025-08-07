@@ -105,17 +105,14 @@ impl RedisDatabase {
                     key,
                     count,
                     responder,
-                } => {
-                    if let Ok(Some(result)) =
-                        self.db.blocking_pop_first_list(key.as_str(), count).await
-                    {
-                        responder.send(Ok(Some(result))).unwrap();
-                        return Ok(());
-                    } else {
+                } => match self.db.blocking_pop_first_list(key.as_str(), count).await {
+                    Ok(Some(result)) => responder.send(Ok(Some(result))).unwrap(),
+                    Ok(None) => {
                         let mut blockers = self.blocklist.lock().await;
                         blockers.entry(key.clone()).or_default().push(responder);
                     }
-                }
+                    Err(err) => responder.send(Err(err)).unwrap(),
+                },
             }
         }
         Ok(())
