@@ -120,7 +120,7 @@ where
                 .await?;
         }
         "get" => {
-            if !args.len() == 1 {
+            if !args.len() > 1 {
                 let (responder, receiver) = oneshot::channel();
                 ctx.db_sender
                     .send(RedisCommand::Get {
@@ -128,15 +128,12 @@ where
                         responder,
                     })
                     .await?;
-                match receiver.await.unwrap() {
-                    Ok(Some(val)) => {
+                match receiver.await.unwrap()? {
+                    Some(val) => {
                         out.write_all(&Resp::SimpleString(val).to_bytes()).await?;
                     }
-                    Ok(None) => {
+                    None => {
                         out.write_all(&Resp::NullBulkString.to_bytes()).await?;
-                    }
-                    Err(err) => {
-                        out.write_all(&Resp::simple_error(err).to_bytes()).await?;
                     }
                 };
             } else {

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, Mutex, PoisonError, RwLock},
+    sync::{Arc, PoisonError, RwLock},
     time::{Duration, Instant},
 };
 
@@ -24,7 +24,7 @@ pub struct RedisDatabase {
     blocklist: DbBlocklist,
 }
 
-type DbBlocklist = Arc<Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
+type DbBlocklist = Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<String>>>>>>;
 
 impl Default for RedisDatabase {
     fn default() -> Self {
@@ -34,7 +34,7 @@ impl Default for RedisDatabase {
             db: Database::default(),
             sender,
             receiver,
-            blocklist: Arc::new(Mutex::new(HashMap::new())),
+            blocklist: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 }
@@ -66,7 +66,7 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.push_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().unwrap();
+                    let mut blockers = self.blocklist.lock().await;
                     if let Some(waiters) = blockers.get_mut(&key) {
                         if !waiters.is_empty() {
                             let sender = waiters.remove(0);
@@ -84,11 +84,15 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.prepend_list(&key, &values)).unwrap();
-                    let mut blockers = self.blocklist.lock().unwrap();
+                    let mut blockers = self.blocklist.lock().await;
                     if let Some(waiters) = blockers.get_mut(&key) {
                         if !waiters.is_empty() {
                             let sender = waiters.remove(0);
                             sender.send(self.db.pop_front_list_only(&key)).unwrap();
+                        }
+
+                        if waiters.is_empty() {
+                            blockers.remove(&key);
                         }
                     }
                 }
