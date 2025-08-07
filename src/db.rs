@@ -279,26 +279,6 @@ impl Database {
         }
     }
 
-    async fn handle_blockers(
-        &self,
-        key: &str,
-        blocklist: &DbBlocklist,
-    ) -> Result<(), DatabaseError> {
-        let mut blockers = blocklist.lock().await;
-        println!("Blockers Len: {}", blockers.len());
-        if let Some(waiters) = blockers.get_mut(key) {
-            if !waiters.is_empty() {
-                let sender = waiters.remove(0);
-                sender.send(self.pop_front_list_only(key).await).unwrap();
-            }
-
-            if waiters.is_empty() {
-                blockers.remove(key);
-            }
-        }
-        Ok(())
-    }
-
     pub async fn pop_first_list(
         &self,
         key: &str,
@@ -335,6 +315,25 @@ impl Database {
             }
         }
         Ok(None)
+    }
+    async fn handle_blockers(
+        &self,
+        key: &str,
+        blocklist: &DbBlocklist,
+    ) -> Result<(), DatabaseError> {
+        let mut blockers = blocklist.lock().await;
+        println!("Blockers Len: {}", blockers.len());
+        if let Some(waiters) = blockers.get_mut(key) {
+            if !waiters.is_empty() {
+                let sender = waiters.remove(0);
+                sender.send(self.pop_front_list_only(key).await).unwrap();
+            }
+
+            if waiters.is_empty() {
+                blockers.remove(key);
+            }
+        }
+        Ok(())
     }
 }
 
