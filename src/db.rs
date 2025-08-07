@@ -75,6 +75,8 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder.send(self.db.prepend_list(&key, &values)).unwrap();
+                    let blockers = Arc::clone(&self.blocklist);
+                    self.db.handle_blockers(key.as_str(), blockers).await?;
                 }
                 Lrange {
                     key,
@@ -198,16 +200,18 @@ impl Database {
     pub fn prepend_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
         let mut db = self.0.write()?;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            for value in values {
-                list.push_front(value.to_string());
-            }
+            values
+                .iter()
+                .for_each(|value| list.push_front(value.to_string()));
             Ok(list.len() as i32)
         } else {
-            db.insert(
-                key.to_string(),
-                DatabaseEntry::List(values.iter().rev().map(|val| val.to_string()).collect()),
-            );
-            Ok(values.len() as i32)
+            let mut list = VecDeque::new();
+            values
+                .iter()
+                .for_each(|value| list.push_front(value.to_string()));
+            let len = list.len();
+            db.insert(key.to_string(), DatabaseEntry::List(list));
+            Ok(len as i32)
         }
     }
 
