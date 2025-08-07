@@ -1,7 +1,10 @@
+use std::time::Duration;
+
 use thiserror::Error;
 use tokio::{
     io::{AsyncWrite, AsyncWriteExt},
     sync::oneshot,
+    time::timeout,
 };
 
 mod set;
@@ -46,7 +49,6 @@ pub enum RedisCommand {
     },
     Blpop {
         key: String,
-        count: usize,
         responder: Responder<Option<Vec<String>>>,
     },
 }
@@ -63,7 +65,7 @@ pub enum CommandError {
     #[error("error parsing input {0}")]
     IntParseError(#[from] std::num::ParseIntError),
     #[error("error parsing input {0}")]
-    StringParseError(#[from] std::string::ParseError),
+    FloatParseError(#[from] std::num::ParseFloatError),
     #[error("{0}")]
     IOError(#[from] std::io::Error),
     #[error("{0}")]
@@ -254,19 +256,35 @@ where
                 let (responder, receiver) = oneshot::channel();
 
                 let count = if args.len() == 2 {
-                    args[1].parse::<usize>()?
+                    args[1].parse::<f32>()?
                 } else {
-                    0
+                    0.0
                 };
 
                 ctx.db_sender
                     .send(RedisCommand::Blpop {
                         key: args[0].clone(),
-                        count,
                         responder,
                     })
                     .await?;
-                if let Some(results) = receiver.await.unwrap()? {
+
+                let response = if count > 0.0 {
+                    let timeout = timeout(Duration::from_secs_f32(count), receiver).await;
+                    match timeout {
+                        Ok(result) => result.unwrap(),
+                        Err(_) => {
+                            out.write_all(
+                                &Resp::SimpleError("failed to get results".to_string()).to_bytes(),
+                            )
+                            .await?;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    receiver.await.unwrap()
+                };
+
+                if let Some(results) = response? {
                     out.write_all(&Resp::StringArray(results).to_bytes())
                         .await?;
                 } else {

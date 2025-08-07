@@ -105,24 +105,22 @@ impl RedisDatabase {
                 } => responder
                     .send(self.db.pop_first_list(&key, count).await)
                     .unwrap(),
-                Blpop {
-                    key,
-                    count,
-                    responder,
-                } => match self.db.blocking_pop_first_list(key.as_str(), count).await {
-                    Ok(Some(result)) => {
-                        responder.send(Ok(Some(result))).unwrap();
-                    }
-                    Ok(None) => {
-                        let mut blockers = self.blocklist.lock().await;
-                        if let Some(list) = blockers.get_mut(&key) {
-                            list.push(responder);
-                        } else {
-                            blockers.insert(key, vec![responder]);
+                Blpop { key, responder } => {
+                    match self.db.blocking_pop_first_list(key.as_str()).await {
+                        Ok(Some(result)) => {
+                            responder.send(Ok(Some(result))).unwrap();
                         }
+                        Ok(None) => {
+                            let mut blockers = self.blocklist.lock().await;
+                            if let Some(list) = blockers.get_mut(&key) {
+                                list.push(responder);
+                            } else {
+                                blockers.insert(key, vec![responder]);
+                            }
+                        }
+                        Err(err) => responder.send(Err(err)).unwrap(),
                     }
-                    Err(err) => responder.send(Err(err)).unwrap(),
-                },
+                }
             }
         }
         Ok(())
@@ -305,7 +303,6 @@ impl Database {
     pub async fn blocking_pop_first_list(
         &self,
         key: &str,
-        _timeout: usize,
     ) -> Result<Option<Vec<String>>, DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
@@ -325,15 +322,16 @@ impl Database {
         let mut blockers = blocklist.lock().await;
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
-                let sender = waiters.remove(0);
-                match self.pop_front_list_only(key).await? {
-                    Some(result) => {
-                        sender
-                            .send(Ok(Some(vec![key.to_string(), result])))
-                            .unwrap();
-                    }
-                    None => {
-                        sender.send(Ok(None)).unwrap();
+                if let Some(sender) = get_open_sender(waiters) {
+                    match self.pop_front_list_only(key).await? {
+                        Some(result) => {
+                            sender
+                                .send(Ok(Some(vec![key.to_string(), result])))
+                                .unwrap();
+                        }
+                        None => {
+                            sender.send(Ok(None)).unwrap();
+                        }
                     }
                 }
             }
@@ -344,6 +342,18 @@ impl Database {
         }
         Ok(())
     }
+}
+
+fn get_open_sender(
+    waiters: &mut Vec<Responder<Option<Vec<String>>>>,
+) -> Option<Responder<Option<Vec<String>>>> {
+    for _ in 0..waiters.len() {
+        let sender = waiters.remove(0);
+        if !sender.is_closed() {
+            return Some(sender);
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone)]
