@@ -358,7 +358,7 @@ where
 
                 let results = match receiver.await.unwrap()? {
                   Some(id) => Resp::BulkString(id).to_bytes(),
-                  None => Resp::simple_error("The ID specified in XADD is equal or smaller that the target stream top item").to_bytes(),  
+                  None => Resp::simple_error("The ID specified in XADD is equal or smaller than the target stream top item").to_bytes(),  
                 };
                 out.write_all(&results).await?;
             } else {

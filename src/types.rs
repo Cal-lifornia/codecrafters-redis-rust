@@ -64,6 +64,6 @@ pub enum EntryParseError {
     NumParseError(#[from] std::num::ParseIntError),
     #[error("missing character {0}")]
     MissingCharacter(char),
-    #[error("The ID specified in XADD must be greater thatn 0-0")]
+    #[error("The ID specified in XADD must be greater than 0-0")]
     TooSmall,
 }
