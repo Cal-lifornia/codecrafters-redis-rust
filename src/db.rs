@@ -378,7 +378,7 @@ impl Database {
         let mut db = self.0.write().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
             let last = stream.keys().last().unwrap();
-            if id > last {
+            if last > id {
                 return Ok(None);
             }
             stream.insert(*id, values);
