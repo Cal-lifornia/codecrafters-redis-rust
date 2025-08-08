@@ -322,7 +322,7 @@ where
             }
         }
         "xadd" => {
-            if !args.len() < 3 {
+            if args.len() > 3 {
                 let (responder, receiver) = oneshot::channel();
                 let keys: Vec<String> = args[2..]
                     .iter()
