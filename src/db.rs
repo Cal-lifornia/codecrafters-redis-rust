@@ -7,7 +7,10 @@ use std::{
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, RwLock};
 
-use crate::commands::{RedisCommand, Responder};
+use crate::{
+    commands::{RedisCommand, Responder},
+    types::EntryId,
+};
 
 struct Database(RwLock<HashMap<String, DatabaseEntry>>);
 
@@ -369,18 +372,22 @@ impl Database {
     async fn add_stream(
         &self,
         key: &str,
-        id: &str,
+        id: &EntryId,
         values: HashMap<String, String>,
-    ) -> Result<String, DatabaseError> {
+    ) -> Result<Option<String>, DatabaseError> {
         let mut db = self.0.write().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
-            stream.insert(id.to_string(), values);
-            Ok(id.to_string())
+            let last = stream.keys().last().unwrap();
+            if id > last {
+                return Ok(None);
+            }
+            stream.insert(*id, values);
+            Ok(Some(id.to_string()))
         } else {
             let mut map = HashMap::new();
-            map.insert(id.to_string(), values);
+            map.insert(*id, values);
             db.insert(key.to_string(), DatabaseEntry::Stream(map));
-            Ok(id.to_string())
+            Ok(Some(id.to_string()))
         }
     }
 }
@@ -401,7 +408,7 @@ fn get_open_sender(
 pub enum DatabaseEntry {
     String(DatabaseString),
     List(VecDeque<String>),
-    Stream(HashMap<String, HashMap<String, String>>),
+    Stream(HashMap<EntryId, HashMap<String, String>>),
 }
 
 #[derive(Debug, Default, Clone)]

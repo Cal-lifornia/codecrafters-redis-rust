@@ -8,6 +8,7 @@ pub mod context;
 pub mod db;
 pub mod redis;
 pub mod resp;
+pub mod types;
 
 #[derive(Debug, Error)]
 pub enum RedisError {

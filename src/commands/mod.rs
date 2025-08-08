@@ -10,7 +10,12 @@ use tokio::{
 mod set;
 use set::*;
 
-use crate::{context::Context, db::DatabaseError, resp::Resp};
+use crate::{
+    context::Context,
+    db::DatabaseError,
+    resp::Resp,
+    types::{self, EntryId},
+};
 
 #[derive(Debug)]
 pub enum RedisCommand {
@@ -57,9 +62,9 @@ pub enum RedisCommand {
     },
     Xadd {
         key: String,
-        id: String,
+        id: EntryId,
         values: HashMap<String, String>,
-        responder: Responder<String>,
+        responder: Responder<Option<String>>,
     },
 }
 
@@ -83,6 +88,8 @@ pub enum CommandError {
     SendError(String),
     #[error("{0}")]
     DBError(#[from] DatabaseError),
+    #[error("{0}")]
+    EntryParseError(#[from] types::EntryParseError),
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
@@ -343,14 +350,17 @@ where
                 ctx.db_sender
                     .send(RedisCommand::Xadd {
                         key: args[0].clone(),
-                        id: args[1].clone(),
+                        id: EntryId::try_from(args[1].clone())?,
                         values: map,
                         responder,
                     })
                     .await?;
 
-                out.write_all(&Resp::BulkString(receiver.await.unwrap()?).to_bytes())
-                    .await?;
+                let results = match receiver.await.unwrap()? {
+                  Some(id) => Resp::BulkString(id).to_bytes(),
+                  None => Resp::simple_error("The ID specified in XADD is equal or smaller that the target stream top item").to_bytes(),  
+                };
+                out.write_all(&results).await?;
             } else {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string())).to_bytes(),
