@@ -138,6 +138,16 @@ impl RedisDatabase {
                         .send(self.db.add_stream(&key, &id, wildcard, values).await)
                         .unwrap();
                 }
+                Xrange {
+                    key,
+                    start,
+                    stop,
+                    responder,
+                } => {
+                    responder
+                        .send(self.db.range_stream(&key, &start, &stop).await)
+                        .unwrap();
+                }
             }
         }
         Ok(())
@@ -399,6 +409,36 @@ impl Database {
             map.insert(*id, values);
             db.insert(key.to_string(), DatabaseEntry::Stream(map));
             Ok(Some(id.to_string()))
+        }
+    }
+
+    async fn range_stream(
+        &self,
+        key: &str,
+        start: &EntryId,
+        stop: &EntryId,
+    ) -> Result<Vec<(String, Vec<String>)>, DatabaseError> {
+        let db = self.0.read().await;
+        if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+            let keys: Vec<EntryId> = stream
+                .keys()
+                .filter(|id| id >= &start && &stop >= id)
+                .map(|id| id.to_owned())
+                .collect();
+            let result: Vec<(String, Vec<String>)> = keys
+                .iter()
+                .map(|id| {
+                    let mut contents = vec![];
+                    stream.get(id).unwrap().iter().for_each(|(key, val)| {
+                        contents.push(key.to_owned());
+                        contents.push(val.to_owned());
+                    });
+                    (id.to_string(), contents)
+                })
+                .collect();
+            Ok(result)
+        } else {
+            Ok(vec![])
         }
     }
 }

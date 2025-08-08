@@ -65,14 +65,13 @@ impl From<EntryId> for String {
 impl TryFrom<String> for EntryId {
     type Error = EntryParseError;
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let (ms_time, sequence) = match value.split_once("-") {
-            Some((ms_time, sequence)) => (ms_time, sequence),
-            None => {
-                return Err(EntryParseError::MissingCharacter('-'));
+        match value.split_once("-") {
+            Some((ms_time, sequence)) => {
+                Self::new(ms_time.parse::<usize>()?, sequence.parse::<usize>()?)
             }
-        };
 
-        Self::new(ms_time.parse::<usize>()?, sequence.parse::<usize>()?)
+            None => Self::new(value.parse::<usize>()?, 0),
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::Formatter,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -69,6 +70,12 @@ pub enum RedisCommand {
         values: HashMap<String, String>,
         wildcard: bool,
         responder: Responder<Option<String>>,
+    },
+    Xrange {
+        key: String,
+        start: EntryId,
+        stop: EntryId,
+        responder: Responder<Vec<(String, Vec<String>)>>,
     },
 }
 
@@ -387,6 +394,35 @@ where
                     &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string())).to_bytes(),
                 )
                 .await?;
+            }
+        }
+        "xrange" => {
+            if !args.len() > 3 {
+                let (responder, receiver) = oneshot::channel();
+                ctx.db_sender
+                    .send(RedisCommand::Xrange {
+                        key: args[0].clone(),
+                        start: EntryId::try_from(args[1].clone())?,
+                        stop: EntryId::try_from(args[2].clone())?,
+                        responder,
+                    })
+                    .await?;
+                let results = receiver.await.unwrap()?;
+                if results.is_empty() {
+                    out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
+                    return Ok(());
+                }
+
+                let output: Vec<Resp> = results
+                    .iter()
+                    .map(|(id, vals)| {
+                        Resp::Array(vec![
+                            Resp::BulkString(id.to_string()),
+                            Resp::StringArray(vals.to_vec()),
+                        ])
+                    })
+                    .collect();
+                out.write_all(&Resp::Array(output).to_bytes()).await?;
             }
         }
 
