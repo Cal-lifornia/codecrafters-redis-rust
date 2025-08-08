@@ -377,7 +377,7 @@ impl Database {
     ) -> Result<Option<String>, DatabaseError> {
         let mut db = self.0.write().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
-            let last = stream.keys().last().unwrap();
+            let last = stream.keys().max().unwrap();
             if last >= id {
                 return Ok(None);
             }
