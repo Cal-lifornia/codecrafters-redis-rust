@@ -124,6 +124,16 @@ impl RedisDatabase {
                 Type { key, responder } => {
                     responder.send(self.db.get_type(&key).await).unwrap();
                 }
+                Xadd {
+                    key,
+                    id,
+                    values,
+                    responder,
+                } => {
+                    responder
+                        .send(self.db.add_stream(&key, &id, values).await)
+                        .unwrap();
+                }
             }
         }
         Ok(())
@@ -351,7 +361,26 @@ impl Database {
         match db.get(key) {
             Some(DatabaseEntry::String(_)) => Ok("string".into()),
             Some(DatabaseEntry::List(_)) => Ok("list".into()),
+            Some(DatabaseEntry::Stream(_)) => Ok("stream".into()),
             None => Ok("none".into()),
+        }
+    }
+
+    async fn add_stream(
+        &self,
+        key: &str,
+        id: &str,
+        values: HashMap<String, String>,
+    ) -> Result<String, DatabaseError> {
+        let mut db = self.0.write().await;
+        if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
+            stream.insert(id.to_string(), values);
+            Ok(id.to_string())
+        } else {
+            let mut map = HashMap::new();
+            map.insert(id.to_string(), values);
+            db.insert(key.to_string(), DatabaseEntry::Stream(map));
+            Ok(id.to_string())
         }
     }
 }
@@ -372,6 +401,7 @@ fn get_open_sender(
 pub enum DatabaseEntry {
     String(DatabaseString),
     List(VecDeque<String>),
+    Stream(HashMap<String, HashMap<String, String>>),
 }
 
 #[derive(Debug, Default, Clone)]

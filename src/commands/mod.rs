@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use thiserror::Error;
 use tokio::{
@@ -55,7 +55,14 @@ pub enum RedisCommand {
         key: String,
         responder: Responder<String>,
     },
+    Xadd {
+        key: String,
+        id: String,
+        values: HashMap<String, String>,
+        responder: Responder<String>,
+    },
 }
+
 pub type CommandResult = Result<Resp, CommandError>;
 
 #[derive(Debug, Error)]
@@ -310,6 +317,43 @@ where
             } else {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes(),
+                )
+                .await?;
+            }
+        }
+        "xadd" => {
+            if !args.len() < 3 {
+                let (responder, receiver) = oneshot::channel();
+                let keys: Vec<String> = args[2..]
+                    .iter()
+                    .step_by(2)
+                    .map(|key| key.to_string())
+                    .collect();
+                let values: Vec<String> = args[3..]
+                    .iter()
+                    .step_by(2)
+                    .map(|value| value.to_string())
+                    .collect();
+                let mut map: HashMap<String, String> = HashMap::new();
+
+                keys.iter().zip(values).for_each(|(key, value)| {
+                    map.insert(key.to_string(), value);
+                });
+
+                ctx.db_sender
+                    .send(RedisCommand::Xadd {
+                        key: args[0].clone(),
+                        id: args[1].clone(),
+                        values: map,
+                        responder,
+                    })
+                    .await?;
+
+                out.write_all(&Resp::BulkString(receiver.await.unwrap()?).to_bytes())
+                    .await?;
+            } else {
+                out.write_all(
+                    &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string())).to_bytes(),
                 )
                 .await?;
             }
