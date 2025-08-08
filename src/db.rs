@@ -425,7 +425,7 @@ impl Database {
                 .filter(|id| id >= &start && &stop >= id)
                 .map(|id| id.to_owned())
                 .collect();
-            let result: Vec<(String, Vec<String>)> = keys
+            let mut result: Vec<(String, Vec<String>)> = keys
                 .iter()
                 .map(|id| {
                     let mut contents = vec![];
@@ -436,6 +436,7 @@ impl Database {
                     (id.to_string(), contents)
                 })
                 .collect();
+            result.sort_by(|(a_id, _), (b_id, _)| a_id.cmp(b_id));
             Ok(result)
         } else {
             Ok(vec![])
