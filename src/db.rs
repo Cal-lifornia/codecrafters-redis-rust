@@ -121,6 +121,9 @@ impl RedisDatabase {
                         Err(err) => responder.send(Err(err)).unwrap(),
                     }
                 }
+                Type { key, responder } => {
+                    responder.send(self.db.get_type(&key).await).unwrap();
+                }
             }
         }
         Ok(())
@@ -341,6 +344,15 @@ impl Database {
             }
         }
         Ok(())
+    }
+
+    async fn get_type(&self, key: &str) -> Result<String, DatabaseError> {
+        let db = self.0.read().await;
+        match db.get(key) {
+            Some(DatabaseEntry::String(_)) => Ok("string".into()),
+            Some(DatabaseEntry::List(_)) => Ok("list".into()),
+            None => Ok("none".into()),
+        }
     }
 }
 

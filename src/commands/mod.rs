@@ -51,6 +51,10 @@ pub enum RedisCommand {
         key: String,
         responder: Responder<Option<Vec<String>>>,
     },
+    Type {
+        key: String,
+        responder: Responder<String>,
+    },
 }
 pub type CommandResult = Result<Resp, CommandError>;
 
@@ -290,6 +294,24 @@ where
                     )
                     .await?;
                 }
+            }
+        }
+        "list" => {
+            if !args.len() > 1 {
+                let (responder, receiver) = oneshot::channel();
+                ctx.db_sender
+                    .send(RedisCommand::Type {
+                        key: args[0].clone(),
+                        responder,
+                    })
+                    .await?;
+                out.write_all(&Resp::SimpleString(receiver.await.unwrap()?).to_bytes())
+                    .await?;
+            } else {
+                out.write_all(
+                    &Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes(),
+                )
+                .await?;
             }
         }
 
