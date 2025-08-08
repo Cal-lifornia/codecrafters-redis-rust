@@ -296,7 +296,7 @@ where
                 }
             }
         }
-        "list" => {
+        "type" => {
             if !args.len() > 1 {
                 let (responder, receiver) = oneshot::channel();
                 ctx.db_sender
