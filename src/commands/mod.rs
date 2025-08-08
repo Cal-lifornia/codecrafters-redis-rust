@@ -1,4 +1,7 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use thiserror::Error;
 use tokio::{
@@ -348,7 +351,21 @@ where
                     map.insert(key.to_string(), value);
                 });
 
-                let (id, wildcard) = EntryId::new_or_wildcard_from_string(args[1].clone())?;
+                let (id, wildcard) = if args[1] != "*" {
+                    EntryId::new_or_wildcard_from_string(args[1].clone())?
+                } else {
+                    let ms_time = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_millis() as usize;
+                    (
+                        EntryId {
+                            ms_time,
+                            sequence: 0,
+                        },
+                        true,
+                    )
+                };
 
                 ctx.db_sender
                     .send(RedisCommand::Xadd {
