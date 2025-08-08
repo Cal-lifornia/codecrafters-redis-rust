@@ -64,6 +64,7 @@ pub enum RedisCommand {
         key: String,
         id: EntryId,
         values: HashMap<String, String>,
+        wildcard: bool,
         responder: Responder<Option<String>>,
     },
 }
@@ -347,10 +348,13 @@ where
                     map.insert(key.to_string(), value);
                 });
 
+                let (id, wildcard) = EntryId::new_or_wildcard_from_string(args[1].clone())?;
+
                 ctx.db_sender
                     .send(RedisCommand::Xadd {
                         key: args[0].clone(),
-                        id: EntryId::try_from(args[1].clone())?,
+                        id,
+                        wildcard,
                         values: map,
                         responder,
                     })

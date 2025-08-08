@@ -4,8 +4,8 @@ use thiserror::Error;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct EntryId {
-    ms_time: usize,
-    sequence: usize,
+    pub ms_time: usize,
+    pub sequence: usize,
 }
 
 impl EntryId {
@@ -15,6 +15,30 @@ impl EntryId {
         } else {
             Ok(Self { ms_time, sequence })
         }
+    }
+    pub fn new_or_wildcard_from_string(value: String) -> Result<(Self, bool), EntryParseError> {
+        let (ms_time, sequence) = match value.split_once("-") {
+            Some((ms_time, sequence)) => (ms_time, sequence),
+            None => {
+                return Err(EntryParseError::MissingCharacter('-'));
+            }
+        };
+        let mut wildcard = false;
+
+        let sequence = if sequence == "*" {
+            wildcard = true;
+            1
+        } else {
+            sequence.parse::<usize>()?
+        };
+
+        Ok((
+            Self {
+                ms_time: ms_time.parse::<usize>()?,
+                sequence,
+            },
+            wildcard,
+        ))
     }
 }
 

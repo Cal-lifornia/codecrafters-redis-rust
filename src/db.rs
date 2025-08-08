@@ -131,10 +131,11 @@ impl RedisDatabase {
                     key,
                     id,
                     values,
+                    wildcard,
                     responder,
                 } => {
                     responder
-                        .send(self.db.add_stream(&key, &id, values).await)
+                        .send(self.db.add_stream(&key, &id, wildcard, values).await)
                         .unwrap();
                 }
             }
@@ -373,16 +374,26 @@ impl Database {
         &self,
         key: &str,
         id: &EntryId,
+        wildcard: bool,
         values: HashMap<String, String>,
     ) -> Result<Option<String>, DatabaseError> {
         let mut db = self.0.write().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
-            let last = stream.keys().max().unwrap();
-            if last >= id {
+            let mut entry_id = *id;
+            if wildcard {
+                if let Some(same_time) = stream.keys().filter(|val| val.ms_time == id.ms_time).max()
+                {
+                    entry_id.sequence = same_time.sequence + 1;
+                } else {
+                    entry_id.sequence = if entry_id.ms_time == 0 { 1 } else { 0 }
+                }
+            }
+            let max = stream.keys().max().unwrap();
+            if max >= &entry_id {
                 return Ok(None);
             }
-            stream.insert(*id, values);
-            Ok(Some(id.to_string()))
+            stream.insert(entry_id, values);
+            Ok(Some(entry_id.to_string()))
         } else {
             let mut map = HashMap::new();
             map.insert(*id, values);
