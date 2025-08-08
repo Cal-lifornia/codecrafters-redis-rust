@@ -32,13 +32,7 @@ impl EntryId {
             sequence.parse::<usize>()?
         };
 
-        Ok((
-            Self {
-                ms_time: ms_time.parse::<usize>()?,
-                sequence,
-            },
-            wildcard,
-        ))
+        Ok((Self::new(ms_time.parse::<usize>()?, sequence)?, wildcard))
     }
 }
 
