@@ -76,6 +76,11 @@ pub enum RedisCommand {
         stop: Option<EntryId>,
         responder: Responder<Vec<DatabaseStreamEntry>>,
     },
+    Xread {
+        key: String,
+        id: EntryId,
+        responder: Responder<Option<DatabaseStreamEntry>>,
+    },
 }
 
 pub type CommandResult = Result<Resp, CommandError>;
@@ -424,6 +429,38 @@ where
 
                 let output: Vec<Resp> = results.iter().map(|vals| vals.clone().into()).collect();
                 out.write_all(&Resp::Array(output).to_bytes()).await?;
+            } else {
+                out.write_all(
+                    &Resp::simple_error(CommandError::WrongNumArgs("xrange".to_string()))
+                        .to_bytes(),
+                )
+                .await?;
+            }
+        }
+        "xread" => {
+            if !args.len() > 2 {
+                let (responder, receiver) = oneshot::channel();
+                ctx.db_sender
+                    .send(RedisCommand::Xread {
+                        key: args[0].clone(),
+                        id: EntryId::try_from(args[1].clone())?,
+                        responder,
+                    })
+                    .await?;
+
+                match receiver.await.unwrap()? {
+                    Some(results) => {
+                        out.write_all(&Resp::from(results).to_bytes()).await?;
+                    }
+                    None => {
+                        out.write_all(&Resp::StringArray(vec![]).to_bytes()).await?;
+                    }
+                }
+            } else {
+                out.write_all(
+                    &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string())).to_bytes(),
+                )
+                .await?;
             }
         }
 

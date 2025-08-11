@@ -149,6 +149,11 @@ impl RedisDatabase {
                         .send(self.db.range_stream(&key, start, stop).await)
                         .unwrap();
                 }
+                Xread { key, id, responder } => {
+                    responder
+                        .send(self.db.read_stream(&key, &id).await)
+                        .unwrap();
+                }
             }
         }
         Ok(())
@@ -445,6 +450,22 @@ impl Database {
             }
         } else {
             Ok(vec![])
+        }
+    }
+
+    async fn read_stream(
+        &self,
+        key: &str,
+        id: &EntryId,
+    ) -> Result<Option<DatabaseStreamEntry>, DatabaseError> {
+        let db = self.0.read().await;
+        if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+            match stream.binary_search_by(|value| value.id.cmp(id)) {
+                Ok(result) => Ok(Some(stream[result].clone())),
+                Err(_) => Ok(None),
+            }
+        } else {
+            Ok(None)
         }
     }
 }
