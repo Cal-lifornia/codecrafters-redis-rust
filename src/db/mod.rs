@@ -149,9 +149,13 @@ impl RedisDatabase {
                         .send(self.db.range_stream(&key, start, stop).await)
                         .unwrap();
                 }
-                Xread { key, id, responder } => {
+                Xread {
+                    keys,
+                    ids,
+                    responder,
+                } => {
                     responder
-                        .send(self.db.read_stream(&key, &id).await)
+                        .send(self.db.read_stream(&keys, &ids).await)
                         .unwrap();
                 }
             }
@@ -462,19 +466,18 @@ impl Database {
 
     async fn read_stream(
         &self,
-        key: &str,
-        id: &EntryId,
+        keys: &[String],
+        ids: &[EntryId],
     ) -> Result<Vec<(String, Vec<DatabaseStreamEntry>)>, DatabaseError> {
         let db = self.0.read().await;
-        if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-            let result = stream.partition_point(|value| value.id < *id);
-            // if stream[result - 1].id >= *id {
-            //     result -= 1
-            // }
-            Ok(vec![(key.to_string(), stream[result..].to_vec())])
-        } else {
-            Ok(vec![(key.to_string(), vec![])])
-        }
+        let mut results = vec![];
+        keys.iter().zip(ids.iter()).for_each(|(key, id)| {
+            if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+                let result = stream.partition_point(|value| value.id < *id);
+                results.push((key.to_string(), stream[result..].to_vec()));
+            }
+        });
+        Ok(results)
     }
 }
 

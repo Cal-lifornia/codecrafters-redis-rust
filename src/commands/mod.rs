@@ -77,8 +77,8 @@ pub enum RedisCommand {
         responder: Responder<Vec<DatabaseStreamEntry>>,
     },
     Xread {
-        key: String,
-        id: EntryId,
+        keys: Vec<String>,
+        ids: Vec<EntryId>,
         responder: Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>,
     },
 }
@@ -447,10 +447,19 @@ where
         "xread" => {
             if args.len() > 2 {
                 let (responder, receiver) = oneshot::channel();
+
+                let ids: Vec<EntryId> = args[1..]
+                    .iter()
+                    .rev()
+                    .map_while(|val| EntryId::try_from(val.clone()).ok())
+                    .collect();
+
+                let keys = &args[1..(1 + ids.len())];
+
                 ctx.db_sender
                     .send(RedisCommand::Xread {
-                        key: args[1].clone(),
-                        id: EntryId::try_from(args[2].clone())?,
+                        keys: keys.to_vec(),
+                        ids,
                         responder,
                     })
                     .await?;
