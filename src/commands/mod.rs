@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    fmt::Formatter,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -16,7 +15,7 @@ use set::*;
 
 use crate::{
     context::Context,
-    db::DatabaseError,
+    db::{DatabaseError, DatabaseStreamEntry},
     resp::Resp,
     types::{self, EntryId},
 };
@@ -73,9 +72,9 @@ pub enum RedisCommand {
     },
     Xrange {
         key: String,
-        start: EntryId,
-        stop: EntryId,
-        responder: Responder<Vec<(String, Vec<String>)>>,
+        start: Option<EntryId>,
+        stop: Option<EntryId>,
+        responder: Responder<Vec<DatabaseStreamEntry>>,
     },
 }
 
@@ -399,11 +398,21 @@ where
         "xrange" => {
             if !args.len() > 3 {
                 let (responder, receiver) = oneshot::channel();
+                let start = if args[1] == "-" {
+                    None
+                } else {
+                    Some(EntryId::try_from(args[1].clone())?)
+                };
+                let stop = if args[2] == "-" {
+                    None
+                } else {
+                    Some(EntryId::try_from(args[1].clone())?)
+                };
                 ctx.db_sender
                     .send(RedisCommand::Xrange {
                         key: args[0].clone(),
-                        start: EntryId::try_from(args[1].clone())?,
-                        stop: EntryId::try_from(args[2].clone())?,
+                        start,
+                        stop,
                         responder,
                     })
                     .await?;
@@ -413,15 +422,7 @@ where
                     return Ok(());
                 }
 
-                let output: Vec<Resp> = results
-                    .iter()
-                    .map(|(id, vals)| {
-                        Resp::Array(vec![
-                            Resp::BulkString(id.to_string()),
-                            Resp::StringArray(vals.to_vec()),
-                        ])
-                    })
-                    .collect();
+                let output: Vec<Resp> = results.iter().map(|vals| vals.clone().into()).collect();
                 out.write_all(&Resp::Array(output).to_bytes()).await?;
             }
         }

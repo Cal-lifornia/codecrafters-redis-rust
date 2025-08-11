@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::{Arc, PoisonError},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -11,6 +11,9 @@ use crate::{
     commands::{RedisCommand, Responder},
     types::EntryId,
 };
+
+mod types;
+pub use types::*;
 
 struct Database(RwLock<HashMap<String, DatabaseEntry>>);
 
@@ -26,8 +29,6 @@ pub struct RedisDatabase {
     receiver: tokio::sync::Mutex<mpsc::Receiver<RedisCommand>>,
     blocklist: DbBlocklist,
 }
-
-type DbBlocklist = Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<Vec<String>>>>>>>;
 
 impl Default for RedisDatabase {
     fn default() -> Self {
@@ -145,7 +146,7 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder
-                        .send(self.db.range_stream(&key, &start, &stop).await)
+                        .send(self.db.range_stream(&key, start, stop).await)
                         .unwrap();
                 }
             }
@@ -391,23 +392,27 @@ impl Database {
         if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
             let mut entry_id = *id;
             if wildcard {
-                if let Some(same_time) = stream.keys().filter(|val| val.ms_time == id.ms_time).max()
-                {
-                    entry_id.sequence = same_time.sequence + 1;
+                if let Some(same_time) = stream.last() {
+                    entry_id.sequence = same_time.id.sequence + 1;
                 } else {
                     entry_id.sequence = if entry_id.ms_time == 0 { 1 } else { 0 }
                 }
             }
-            let max = stream.keys().max().unwrap();
-            if max >= &entry_id {
+            let max = stream.last().unwrap();
+            if max.id >= entry_id {
                 return Ok(None);
             }
-            stream.insert(entry_id, values);
+            stream.push(DatabaseStreamEntry {
+                id: entry_id,
+                values,
+            });
+            stream.sort();
             Ok(Some(entry_id.to_string()))
         } else {
-            let mut map = HashMap::new();
-            map.insert(*id, values);
-            db.insert(key.to_string(), DatabaseEntry::Stream(map));
+            db.insert(
+                key.to_string(),
+                DatabaseEntry::Stream(vec![DatabaseStreamEntry { id: *id, values }]),
+            );
             Ok(Some(id.to_string()))
         }
     }
@@ -415,29 +420,25 @@ impl Database {
     async fn range_stream(
         &self,
         key: &str,
-        start: &EntryId,
-        stop: &EntryId,
-    ) -> Result<Vec<(String, Vec<String>)>, DatabaseError> {
+        start: Option<EntryId>,
+        stop: Option<EntryId>,
+    ) -> Result<Vec<DatabaseStreamEntry>, DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-            let keys: Vec<EntryId> = stream
-                .keys()
-                .filter(|id| id >= &start && &stop >= id)
-                .map(|id| id.to_owned())
-                .collect();
-            let mut result: Vec<(String, Vec<String>)> = keys
-                .iter()
-                .map(|id| {
-                    let mut contents = vec![];
-                    stream.get(id).unwrap().iter().for_each(|(key, val)| {
-                        contents.push(key.to_owned());
-                        contents.push(val.to_owned());
-                    });
-                    (id.to_string(), contents)
-                })
-                .collect();
-            result.sort_by(|(a_id, _), (b_id, _)| a_id.cmp(b_id));
-            Ok(result)
+            let first_point = match start {
+                Some(start) => stream
+                    .binary_search_by(|value| value.id.cmp(&start))
+                    .unwrap(),
+                None => 0,
+            };
+            if let Some(stop) = stop {
+                let last_point = stream
+                    .binary_search_by(|value| value.id.cmp(&stop))
+                    .unwrap();
+                Ok(stream[first_point..=last_point].to_vec())
+            } else {
+                Ok(stream[first_point..].to_vec())
+            }
         } else {
             Ok(vec![])
         }
@@ -456,52 +457,10 @@ fn get_open_sender(
     None
 }
 
-#[derive(Debug, Clone)]
-pub enum DatabaseEntry {
-    String(DatabaseString),
-    List(VecDeque<String>),
-    Stream(HashMap<EntryId, HashMap<String, String>>),
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct DatabaseString {
-    value: String,
-    expiry: Option<Instant>,
-}
-impl DatabaseString {
-    fn new(value: &str, expiry: Option<Instant>) -> Self {
-        Self {
-            value: value.to_string(),
-            expiry,
-        }
-    }
-    fn value(&self) -> &str {
-        &self.value
-    }
-    fn is_expired(&self) -> bool {
-        if let Some(expiry) = self.expiry {
-            Instant::now() > expiry
-        } else {
-            false
-        }
-    }
-    fn update_value_ttl_expiry(&mut self, value: &str) {
-        self.value = value.to_string()
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum DatabaseError {
-    #[error("database lock is poisoned")]
-    LockPoisonError,
     #[error("channel failed to send")]
     ChannelSendError(String),
-}
-
-impl<T> From<PoisonError<T>> for DatabaseError {
-    fn from(_: PoisonError<T>) -> Self {
-        Self::LockPoisonError
-    }
 }
 
 impl From<oneshot::error::RecvError> for DatabaseError {
@@ -509,7 +468,6 @@ impl From<oneshot::error::RecvError> for DatabaseError {
         Self::ChannelSendError(value.to_string())
     }
 }
-
 // #[cfg(test)]
 // mod tests {
 //     use std::thread::sleep;

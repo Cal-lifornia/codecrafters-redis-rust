@@ -1,7 +1,9 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
+
+use crate::db::DatabaseStreamEntry;
 
 pub type RespResult<'a> = std::result::Result<(Resp, &'a [u8]), RespError>;
 
@@ -102,6 +104,22 @@ impl From<Resp> for Bytes {
             }
         }
         buf.into()
+    }
+}
+impl From<HashMap<String, String>> for Resp {
+    fn from(value: HashMap<String, String>) -> Self {
+        let mut results: Vec<String> = vec![];
+        value.iter().for_each(|(key, val)| {
+            results.push(key.to_string());
+            results.push(val.to_string());
+        });
+        Resp::StringArray(results)
+    }
+}
+
+impl From<DatabaseStreamEntry> for Resp {
+    fn from(value: DatabaseStreamEntry) -> Self {
+        Resp::Array(vec![Resp::BulkString(value.id.into()), value.values.into()])
     }
 }
 
