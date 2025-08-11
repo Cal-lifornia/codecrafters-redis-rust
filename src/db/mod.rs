@@ -437,7 +437,7 @@ impl Database {
             let first_point = match start {
                 Some(start) => {
                     let result = stream.partition_point(|value| value.id > start);
-                    if stream[result - 1].id == start {
+                    if stream[result - 1].id >= start {
                         result - 1
                     } else {
                         result
@@ -447,7 +447,7 @@ impl Database {
             };
             if let Some(stop) = stop {
                 let mut last_point = stream.partition_point(|value| value.id < stop);
-                if stream[last_point - 1].id == stop {
+                if stream[last_point - 1].id >= stop {
                     last_point -= 1
                 }
                 Ok(stream[first_point..=last_point].to_vec())
@@ -467,7 +467,7 @@ impl Database {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let mut result = stream.partition_point(|value| value.id > *id);
-            if stream[result - 1].id == *id {
+            if stream[result - 1].id >= *id {
                 result -= 1
             }
             Ok(vec![(key.to_string(), stream[result..].to_vec())])
