@@ -436,20 +436,21 @@ impl Database {
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
                 Some(start) => {
-                    let result = stream.partition_point(|value| value.id <= start);
-                    if stream[result - 1].id >= start {
-                        result - 1
-                    } else {
-                        result
-                    }
+                    stream.partition_point(|value| value.id <= start)
+                    // let mut result = stream.partition_point(|value| value.id <= start);
+                    // if stream[result - 1].id <= start {
+                    //     result - 1
+                    // } else {
+                    //     result
+                    // }
                 }
                 None => 0,
             };
             if let Some(stop) = stop {
                 let mut last_point = stream.partition_point(|value| value.id <= stop);
-                if stream[last_point - 1].id >= stop {
-                    last_point -= 1
-                }
+                // if stream[last_point - 1].id <= stop {
+                //     last_point -= 1
+                // }
                 Ok(stream[first_point..=last_point].to_vec())
             } else {
                 Ok(stream[first_point..].to_vec())
