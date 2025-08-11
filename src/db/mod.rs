@@ -395,6 +395,8 @@ impl Database {
                 if let Some(same_time) = stream.last() {
                     if same_time.id.ms_time == entry_id.ms_time {
                         entry_id.sequence = same_time.id.sequence + 1;
+                    } else {
+                        entry_id.sequence = if entry_id.ms_time == 0 { 1 } else { 0 }
                     }
                 } else {
                     entry_id.sequence = if entry_id.ms_time == 0 { 1 } else { 0 }
