@@ -450,8 +450,8 @@ where
                 let (responder, receiver) = oneshot::channel();
 
                 let (start_point, block): (usize, Option<usize>) =
-                    if args[1].to_lowercase() == "block" {
-                        (3, Some(args[2].parse::<usize>()?))
+                    if args[0].to_lowercase() == "block" {
+                        (3, Some(args[1].parse::<usize>()?))
                     } else {
                         (1, None)
                     };
