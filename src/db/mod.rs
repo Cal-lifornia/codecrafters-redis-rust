@@ -451,7 +451,7 @@ impl Database {
                 // if stream[last_point - 1].id <= stop {
                 //     last_point -= 1
                 // }
-                Ok(stream[first_point..=last_point].to_vec())
+                Ok(stream[first_point..last_point].to_vec())
             } else {
                 Ok(stream[first_point..].to_vec())
             }
