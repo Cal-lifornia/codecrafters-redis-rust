@@ -464,7 +464,10 @@ where
 
                 let keys = &args[start_point..(start_point + ids.len())];
 
-                println!("args; keys: {:#?}; ids: {:#?}", keys, ids);
+                println!(
+                    "args:\nkeys: {:#?}\nids: {:#?}\nblock: {:#?}",
+                    keys, ids, block
+                );
 
                 ctx.db_sender
                     .send(RedisCommand::Xread {
