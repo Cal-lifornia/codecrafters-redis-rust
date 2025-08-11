@@ -463,22 +463,11 @@ impl Database {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
-                Some(start) => {
-                    stream.partition_point(|value| value.id < start)
-                    // let mut result = stream.partition_point(|value| value.id <= start);
-                    // if stream[result - 1].id <= start {
-                    //     result - 1
-                    // } else {
-                    //     result
-                    // }
-                }
+                Some(start) => stream.partition_point(|value| value.id < start),
                 None => 0,
             };
             if let Some(stop) = stop {
                 let last_point = stream.partition_point(|value| value.id <= stop);
-                // if stream[last_point - 1].id <= stop {
-                //     last_point -= 1
-                // }
                 Ok(stream[first_point..last_point].to_vec())
             } else {
                 Ok(stream[first_point..].to_vec())
@@ -519,6 +508,7 @@ impl Database {
                         Err(_) => return Ok(None),
                     };
 
+                println!("we are here: {:#?}", result);
                 Ok(Some(vec![result]))
             }
             None => {
