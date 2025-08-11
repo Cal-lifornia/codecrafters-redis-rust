@@ -364,7 +364,7 @@ where
 
                 let (id, wildcard) = if args[1] == "0-0" {
                     out.write_all(
-                        &Resp::simple_error("The ID specified in XADD must be greater that 0-0")
+                        &Resp::simple_error("The ID specified in XADD must be greater than 0-0")
                             .to_bytes(),
                     )
                     .await?;
