@@ -507,11 +507,11 @@ impl Database {
                 //         Ok(None) => return Ok(None),
                 //         Err(_) => return Ok(None),
                 //     };
-                let key = keys[0];
-                let receiver = if let Some(sender) = stream_blocklist.lock().await.get(key) {
+                let key = keys[0].clone();
+                let mut receiver = if let Some(sender) = stream_blocklist.lock().await.get(&key) {
                     sender.subscribe()
                 } else {
-                    let (sender, mut receiver) = broadcast::channel(8);
+                    let (sender, receiver) = broadcast::channel(8);
                     blocklist.insert(key.to_string(), sender).unwrap();
                     receiver
                 };
@@ -519,7 +519,7 @@ impl Database {
                 let result = timeout(Duration::from_millis(time as u64), receiver.recv()).await;
                 match result {
                     Ok(result) => Ok(Some(vec![result?])),
-                    Err(_) => return Ok(None),
+                    Err(_) => Ok(None),
                 }
             }
             None => {
