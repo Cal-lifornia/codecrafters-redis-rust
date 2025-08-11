@@ -435,15 +435,11 @@ impl Database {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
-                Some(start) => stream
-                    .binary_search_by(|value| value.id.cmp(&start))
-                    .unwrap(),
+                Some(start) => stream.partition_point(|value| value.id >= start),
                 None => 0,
             };
             if let Some(stop) = stop {
-                let last_point = stream
-                    .binary_search_by(|value| value.id.cmp(&stop))
-                    .unwrap();
+                let last_point = stream.partition_point(|value| value.id <= stop);
                 Ok(stream[first_point..=last_point].to_vec())
             } else {
                 Ok(stream[first_point..].to_vec())
@@ -457,15 +453,13 @@ impl Database {
         &self,
         key: &str,
         id: &EntryId,
-    ) -> Result<(String, Vec<DatabaseStreamEntry>), DatabaseError> {
+    ) -> Result<Vec<(String, Vec<DatabaseStreamEntry>)>, DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-            match stream.binary_search_by(|value| value.id.ms_time.cmp(&id.ms_time)) {
-                Ok(result) => Ok((key.to_string(), stream[result..].to_vec())),
-                Err(_) => Ok((key.to_string(), vec![])),
-            }
+            let result = stream.partition_point(|value| value.id >= *id);
+            Ok(vec![(key.to_string(), stream[result..].to_vec())])
         } else {
-            Ok((key.to_string(), vec![]))
+            Ok(vec![(key.to_string(), vec![])])
         }
     }
 }

@@ -79,7 +79,7 @@ pub enum RedisCommand {
     Xread {
         key: String,
         id: EntryId,
-        responder: Responder<(String, Vec<DatabaseStreamEntry>)>,
+        responder: Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>,
     },
 }
 
@@ -455,15 +455,17 @@ where
                     })
                     .await?;
 
-                let (res_key, res_vec) = receiver.await.unwrap()?;
-                out.write_all(
-                    &Resp::Array(vec![
-                        Resp::BulkString(res_key),
-                        Resp::Array(res_vec.iter().map(|val| Resp::from(val.clone())).collect()),
-                    ])
-                    .to_bytes(),
-                )
-                .await?;
+                let results = receiver.await.unwrap()?;
+                let output: Vec<Resp> = results
+                    .iter()
+                    .map(|(key, values)| {
+                        Resp::Array(vec![
+                            Resp::BulkString(key.to_string()),
+                            Resp::Array(values.iter().map(|val| Resp::from(val.clone())).collect()),
+                        ])
+                    })
+                    .collect();
+                out.write_all(&Resp::Array(output).to_bytes()).await?;
             } else {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string())).to_bytes(),
