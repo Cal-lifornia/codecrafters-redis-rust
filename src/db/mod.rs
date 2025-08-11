@@ -436,7 +436,7 @@ impl Database {
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
                 Some(start) => {
-                    stream.partition_point(|value| value.id <= start)
+                    stream.partition_point(|value| value.id < start)
                     // let mut result = stream.partition_point(|value| value.id <= start);
                     // if stream[result - 1].id <= start {
                     //     result - 1
@@ -447,7 +447,7 @@ impl Database {
                 None => 0,
             };
             if let Some(stop) = stop {
-                let mut last_point = stream.partition_point(|value| value.id <= stop);
+                let last_point = stream.partition_point(|value| value.id <= stop);
                 // if stream[last_point - 1].id <= stop {
                 //     last_point -= 1
                 // }
