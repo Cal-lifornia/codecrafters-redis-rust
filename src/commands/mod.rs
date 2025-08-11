@@ -445,12 +445,12 @@ where
             }
         }
         "xread" => {
-            if !args.len() > 2 {
+            if args.len() > 2 {
                 let (responder, receiver) = oneshot::channel();
                 ctx.db_sender
                     .send(RedisCommand::Xread {
-                        key: args[0].clone(),
-                        id: EntryId::try_from(args[1].clone())?,
+                        key: args[1].clone(),
+                        id: EntryId::try_from(args[2].clone())?,
                         responder,
                     })
                     .await?;
