@@ -457,15 +457,15 @@ impl Database {
         &self,
         key: &str,
         id: &EntryId,
-    ) -> Result<Option<DatabaseStreamEntry>, DatabaseError> {
+    ) -> Result<(String, Vec<DatabaseStreamEntry>), DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             match stream.binary_search_by(|value| value.id.cmp(id)) {
-                Ok(result) => Ok(Some(stream[result].clone())),
-                Err(_) => Ok(None),
+                Ok(result) => Ok((key.to_string(), stream[result..].to_vec())),
+                Err(_) => Ok((key.to_string(), vec![])),
             }
         } else {
-            Ok(None)
+            Ok((key.to_string(), vec![]))
         }
     }
 }
