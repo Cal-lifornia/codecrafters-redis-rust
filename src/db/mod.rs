@@ -436,7 +436,7 @@ impl Database {
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
                 Some(start) => {
-                    let result = stream.partition_point(|value| value.id >= start);
+                    let result = stream.partition_point(|value| value.id <= start);
                     if stream[result - 1].id >= start {
                         result - 1
                     } else {
@@ -466,10 +466,10 @@ impl Database {
     ) -> Result<Vec<(String, Vec<DatabaseStreamEntry>)>, DatabaseError> {
         let db = self.0.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-            let mut result = stream.partition_point(|value| value.id >= *id);
-            if stream[result - 1].id >= *id {
-                result -= 1
-            }
+            let result = stream.partition_point(|value| value.id < *id);
+            // if stream[result - 1].id >= *id {
+            //     result -= 1
+            // }
             Ok(vec![(key.to_string(), stream[result..].to_vec())])
         } else {
             Ok(vec![(key.to_string(), vec![])])
