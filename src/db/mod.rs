@@ -488,28 +488,39 @@ impl Database {
         match block {
             Some(time) => {
                 let mut blocklist = stream_blocklist.lock().await;
-                let mut joinset = JoinSet::new();
-                for key in keys {
-                    if let Some(sender) = stream_blocklist.lock().await.get(key) {
-                        let mut receiver = sender.subscribe();
-                        joinset.spawn(async move { receiver.recv().await });
-                    } else {
-                        let (sender, mut receiver) = broadcast::channel(8);
-                        blocklist.insert(key.to_string(), sender).unwrap();
+                // let mut joinset = JoinSet::new();
+                // for key in keys {
+                //     if let Some(sender) = stream_blocklist.lock().await.get(key) {
+                //         let mut receiver = sender.subscribe();
+                //         joinset.spawn(async move { receiver.recv().await });
+                //     } else {
+                //         let (sender, mut receiver) = broadcast::channel(8);
+                //         blocklist.insert(key.to_string(), sender).unwrap();
 
-                        joinset.spawn(async move { receiver.recv().await });
-                    }
+                //         joinset.spawn(async move { receiver.recv().await });
+                //     }
+                // }
+
+                // let result =
+                //     match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
+                //         Ok(Some(results)) => results??,
+                //         Ok(None) => return Ok(None),
+                //         Err(_) => return Ok(None),
+                //     };
+                let key = keys[0];
+                let receiver = if let Some(sender) = stream_blocklist.lock().await.get(key) {
+                    sender.subscribe()
+                } else {
+                    let (sender, mut receiver) = broadcast::channel(8);
+                    blocklist.insert(key.to_string(), sender).unwrap();
+                    receiver
+                };
+
+                let result = timeout(Duration::from_millis(time as u64), receiver.recv()).await;
+                match result {
+                    Ok(result) => Ok(Some(vec![result?])),
+                    Err(_) => return Ok(None),
                 }
-
-                let result =
-                    match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
-                        Ok(Some(results)) => results??,
-                        Ok(None) => return Ok(None),
-                        Err(_) => return Ok(None),
-                    };
-
-                println!("we are here: {:#?}", result);
-                Ok(Some(vec![result]))
             }
             None => {
                 let mut results = vec![];
