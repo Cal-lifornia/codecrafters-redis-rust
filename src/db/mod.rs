@@ -5,7 +5,11 @@ use std::{
 };
 
 use thiserror::Error;
-use tokio::sync::{mpsc, oneshot, RwLock};
+use tokio::{
+    sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
+    task::JoinSet,
+    time::timeout,
+};
 
 use crate::{
     commands::{RedisCommand, Responder},
@@ -27,7 +31,8 @@ pub struct RedisDatabase {
     db: Database,
     sender: mpsc::Sender<RedisCommand>,
     receiver: tokio::sync::Mutex<mpsc::Receiver<RedisCommand>>,
-    blocklist: DbBlocklist,
+    list_blocklist: ListBlocklist,
+    stream_blocklist: StreamBlocklist,
 }
 
 impl Default for RedisDatabase {
@@ -38,7 +43,8 @@ impl Default for RedisDatabase {
             db: Database::default(),
             sender,
             receiver,
-            blocklist: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            list_blocklist: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            stream_blocklist: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -73,7 +79,7 @@ impl RedisDatabase {
                     responder
                         .send(self.db.push_list(&key, &values).await)
                         .unwrap();
-                    let blockers = Arc::clone(&self.blocklist);
+                    let blockers = Arc::clone(&self.list_blocklist);
                     self.db
                         .handle_blockers(key.as_str(), &blockers.clone())
                         .await?;
@@ -86,7 +92,7 @@ impl RedisDatabase {
                     responder
                         .send(self.db.prepend_list(&key, &values).await)
                         .unwrap();
-                    let blockers = Arc::clone(&self.blocklist);
+                    let blockers = Arc::clone(&self.list_blocklist);
                     self.db
                         .handle_blockers(key.as_str(), &blockers.clone())
                         .await?;
@@ -115,7 +121,7 @@ impl RedisDatabase {
                             responder.send(Ok(Some(result))).unwrap();
                         }
                         Ok(None) => {
-                            let mut blockers = self.blocklist.lock().await;
+                            let mut blockers = self.list_blocklist.lock().await;
                             if let Some(list) = blockers.get_mut(&key) {
                                 list.push(responder);
                             } else {
@@ -136,8 +142,21 @@ impl RedisDatabase {
                     responder,
                 } => {
                     responder
-                        .send(self.db.add_stream(&key, &id, wildcard, values).await)
+                        .send(
+                            self.db
+                                .add_stream(&key, &id, wildcard, values.clone())
+                                .await,
+                        )
                         .unwrap();
+                    let mut blocklist = self.stream_blocklist.lock().await;
+                    if let Some(sender) = blocklist.remove(&key) {
+                        match sender.send((key, vec![DatabaseStreamEntry { id, values }])) {
+                            Ok(_) => {}
+                            Err(_) => {
+                                "failed to send xadd".to_string();
+                            }
+                        }
+                    }
                 }
                 Xrange {
                     key,
@@ -152,10 +171,15 @@ impl RedisDatabase {
                 Xread {
                     keys,
                     ids,
+                    block,
                     responder,
                 } => {
                     responder
-                        .send(self.db.read_stream(&keys, &ids).await)
+                        .send(
+                            self.db
+                                .read_stream(&keys, &ids, block, &self.stream_blocklist.clone())
+                                .await,
+                        )
                         .unwrap();
                 }
             }
@@ -354,7 +378,7 @@ impl Database {
     async fn handle_blockers(
         &self,
         key: &str,
-        blocklist: &DbBlocklist,
+        blocklist: &ListBlocklist,
     ) -> Result<(), DatabaseError> {
         let mut blockers = blocklist.lock().await;
         if let Some(waiters) = blockers.get_mut(key) {
@@ -468,16 +492,46 @@ impl Database {
         &self,
         keys: &[String],
         ids: &[EntryId],
-    ) -> Result<Vec<(String, Vec<DatabaseStreamEntry>)>, DatabaseError> {
+        block: Option<usize>,
+        stream_blocklist: &StreamBlocklist,
+    ) -> Result<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>, DatabaseError> {
         let db = self.0.read().await;
-        let mut results = vec![];
-        keys.iter().zip(ids.iter()).for_each(|(key, id)| {
-            if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-                let result = stream.partition_point(|value| value.id < *id);
-                results.push((key.to_string(), stream[result..].to_vec()));
+        match block {
+            Some(time) => {
+                let mut blocklist = stream_blocklist.lock().await;
+                let mut joinset = JoinSet::new();
+                for key in keys {
+                    if let Some(sender) = stream_blocklist.lock().await.get(key) {
+                        let mut receiver = sender.subscribe();
+                        joinset.spawn(async move { receiver.recv().await });
+                    } else {
+                        let (sender, mut receiver) = broadcast::channel(8);
+                        blocklist.insert(key.to_string(), sender).unwrap();
+
+                        joinset.spawn(async move { receiver.recv().await });
+                    }
+                }
+
+                let result =
+                    match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
+                        Ok(Some(results)) => results??,
+                        Ok(None) => return Ok(None),
+                        Err(_) => return Ok(None),
+                    };
+
+                Ok(Some(vec![result]))
             }
-        });
-        Ok(results)
+            None => {
+                let mut results = vec![];
+                keys.iter().zip(ids.iter()).for_each(|(key, id)| {
+                    if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+                        let result = stream.partition_point(|value| value.id < *id);
+                        results.push((key.to_string(), stream[result..].to_vec()));
+                    }
+                });
+                Ok(Some(results))
+            }
+        }
     }
 }
 
@@ -497,6 +551,10 @@ fn get_open_sender(
 pub enum DatabaseError {
     #[error("channel failed to send")]
     ChannelSendError(String),
+    #[error("Channel receiver error")]
+    ChannelRecvError(#[from] broadcast::error::RecvError),
+    #[error("Failed to join tasks")]
+    TaskJoinError(#[from] tokio::task::JoinError),
 }
 
 impl From<oneshot::error::RecvError> for DatabaseError {

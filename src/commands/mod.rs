@@ -79,7 +79,8 @@ pub enum RedisCommand {
     Xread {
         keys: Vec<String>,
         ids: Vec<EntryId>,
-        responder: Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>,
+        block: Option<usize>,
+        responder: Responder<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>>,
     },
 }
 
@@ -448,33 +449,46 @@ where
             if args.len() > 2 {
                 let (responder, receiver) = oneshot::channel();
 
-                let ids: Vec<EntryId> = args[1..]
+                let (start_point, block): (usize, Option<usize>) =
+                    if args[1].to_lowercase() == "block" {
+                        (3, Some(args[2].parse::<usize>()?))
+                    } else {
+                        (1, None)
+                    };
+
+                let ids: Vec<EntryId> = args[start_point..]
                     .iter()
                     .rev()
                     .map_while(|val| EntryId::try_from(val.clone()).ok())
                     .collect();
 
-                let keys = &args[1..(1 + ids.len())];
+                let keys = &args[start_point..(start_point + ids.len())];
 
                 ctx.db_sender
                     .send(RedisCommand::Xread {
                         keys: keys.to_vec(),
                         ids,
+                        block,
                         responder,
                     })
                     .await?;
 
-                let results = receiver.await.unwrap()?;
-                let output: Vec<Resp> = results
-                    .iter()
-                    .map(|(key, values)| {
-                        Resp::Array(vec![
-                            Resp::BulkString(key.to_string()),
-                            Resp::Array(values.iter().map(|val| Resp::from(val.clone())).collect()),
-                        ])
-                    })
-                    .collect();
-                out.write_all(&Resp::Array(output).to_bytes()).await?;
+                if let Some(results) = receiver.await.unwrap()? {
+                    let output: Vec<Resp> = results
+                        .iter()
+                        .map(|(key, values)| {
+                            Resp::Array(vec![
+                                Resp::BulkString(key.to_string()),
+                                Resp::Array(
+                                    values.iter().map(|val| Resp::from(val.clone())).collect(),
+                                ),
+                            ])
+                        })
+                        .collect();
+                    out.write_all(&Resp::Array(output).to_bytes()).await?;
+                } else {
+                    out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                }
             } else {
                 out.write_all(
                     &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string())).to_bytes(),
