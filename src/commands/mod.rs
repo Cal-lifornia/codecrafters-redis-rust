@@ -403,10 +403,10 @@ where
                 } else {
                     Some(EntryId::try_from(args[1].clone())?)
                 };
-                let stop = if args[2] == "-" {
+                let stop = if args[2] == "+" {
                     None
                 } else {
-                    Some(EntryId::try_from(args[1].clone())?)
+                    Some(EntryId::try_from(args[2].clone())?)
                 };
                 ctx.db_sender
                     .send(RedisCommand::Xrange {
