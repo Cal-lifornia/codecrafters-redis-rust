@@ -104,7 +104,7 @@ pub enum CommandError {
     #[error("{0}")]
     DBError(#[from] DatabaseError),
     #[error("{0}")]
-    EntryParseError(#[from] types::EntryParseError),
+    EntryParseError(#[from] types::EntryIdParseErrore),
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
@@ -362,7 +362,14 @@ where
                     map.insert(key.to_string(), value);
                 });
 
-                let (id, wildcard) = if args[1] != "*" {
+                let (id, wildcard) = if args[1] == "0-0" {
+                    out.write_all(
+                        &Resp::simple_error("The ID specified in XADD must be greater that 0-0")
+                            .to_bytes(),
+                    )
+                    .await?;
+                    return Ok(());
+                } else if args[1] != "*" {
                     EntryId::new_or_wildcard_from_string(args[1].clone())?
                 } else {
                     let ms_time = SystemTime::now()

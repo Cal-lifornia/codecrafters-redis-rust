@@ -9,18 +9,14 @@ pub struct EntryId {
 }
 
 impl EntryId {
-    fn new(ms_time: usize, sequence: usize) -> Result<Self, EntryParseError> {
-        if ms_time == 0 && sequence == 0 {
-            Err(EntryParseError::TooSmall)
-        } else {
-            Ok(Self { ms_time, sequence })
-        }
+    fn new(ms_time: usize, sequence: usize) -> Self {
+        Self { ms_time, sequence }
     }
-    pub fn new_or_wildcard_from_string(value: String) -> Result<(Self, bool), EntryParseError> {
+    pub fn new_or_wildcard_from_string(value: String) -> Result<(Self, bool), EntryIdParseErrore> {
         let (ms_time, sequence) = match value.split_once("-") {
             Some((ms_time, sequence)) => (ms_time, sequence),
             None => {
-                return Err(EntryParseError::MissingCharacter('-'));
+                return Err(EntryIdParseErrore::MissingCharacter('-'));
             }
         };
         let mut wildcard = false;
@@ -32,7 +28,7 @@ impl EntryId {
             sequence.parse::<usize>()?
         };
 
-        Ok((Self::new(ms_time.parse::<usize>()?, sequence)?, wildcard))
+        Ok((Self::new(ms_time.parse::<usize>()?, sequence), wildcard))
     }
 }
 
@@ -63,24 +59,23 @@ impl From<EntryId> for String {
 }
 
 impl TryFrom<String> for EntryId {
-    type Error = EntryParseError;
+    type Error = EntryIdParseErrore;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.split_once("-") {
-            Some((ms_time, sequence)) => {
-                Self::new(ms_time.parse::<usize>()?, sequence.parse::<usize>()?)
-            }
+            Some((ms_time, sequence)) => Ok(Self::new(
+                ms_time.parse::<usize>()?,
+                sequence.parse::<usize>()?,
+            )),
 
-            None => Self::new(value.parse::<usize>()?, 0),
+            None => Ok(Self::new(value.parse::<usize>()?, 0)),
         }
     }
 }
 
 #[derive(Debug, Error)]
-pub enum EntryParseError {
+pub enum EntryIdParseErrore {
     #[error("error parsing type to number")]
     NumParseError(#[from] std::num::ParseIntError),
     #[error("missing character {0}")]
     MissingCharacter(char),
-    #[error("The ID specified in XADD must be greater than 0-0")]
-    TooSmall,
 }
