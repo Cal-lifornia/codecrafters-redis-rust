@@ -464,6 +464,8 @@ where
 
                 let keys = &args[start_point..(start_point + ids.len())];
 
+                println!("args; keys: {:#?}; ids: {:#?}", keys, ids);
+
                 ctx.db_sender
                     .send(RedisCommand::Xread {
                         keys: keys.to_vec(),
