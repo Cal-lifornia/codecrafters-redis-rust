@@ -79,7 +79,7 @@ pub enum RedisCommand {
     Xread {
         keys: Vec<String>,
         ids: Vec<EntryId>,
-        block: Option<usize>,
+        block: bool,
         responder: Responder<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>>,
     },
 }
@@ -470,12 +470,24 @@ where
                     .send(RedisCommand::Xread {
                         keys: keys.to_vec(),
                         ids,
-                        block,
+                        block: block.is_some(),
                         responder,
                     })
                     .await?;
 
-                if let Some(results) = receiver.await.unwrap()? {
+                let output = if let Some(time) = block {
+                    match timeout(Duration::from_millis(time as u64), receiver).await {
+                        Ok(out) => out.unwrap()?,
+                        Err(_) => {
+                            out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    receiver.await.unwrap()?
+                };
+
+                if let Some(results) = output {
                     let output: Vec<Resp> = results
                         .iter()
                         .map(|(key, values)| {

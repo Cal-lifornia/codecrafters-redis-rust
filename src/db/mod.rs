@@ -481,57 +481,51 @@ impl Database {
         &self,
         keys: &[String],
         ids: &[EntryId],
-        block: Option<usize>,
+        block: bool,
         stream_blocklist: &StreamBlocklist,
     ) -> Result<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>, DatabaseError> {
         let db = self.0.read().await;
-        match block {
-            Some(time) => {
-                let mut blocklist = stream_blocklist.lock().await;
-                // let mut joinset = JoinSet::new();
-                // for key in keys {
-                //     if let Some(sender) = stream_blocklist.lock().await.get(key) {
-                //         let mut receiver = sender.subscribe();
-                //         joinset.spawn(async move { receiver.recv().await });
-                //     } else {
-                //         let (sender, mut receiver) = broadcast::channel(8);
-                //         blocklist.insert(key.to_string(), sender).unwrap();
+        if block {
+            let mut blocklist = stream_blocklist.lock().await;
+            // let mut joinset = JoinSet::new();
+            // for key in keys {
+            //     if let Some(sender) = stream_blocklist.lock().await.get(key) {
+            //         let mut receiver = sender.subscribe();
+            //         joinset.spawn(async move { receiver.recv().await });
+            //     } else {
+            //         let (sender, mut receiver) = broadcast::channel(8);
+            //         blocklist.insert(key.to_string(), sender).unwrap();
 
-                //         joinset.spawn(async move { receiver.recv().await });
-                //     }
-                // }
+            //         joinset.spawn(async move { receiver.recv().await });
+            //     }
+            // }
 
-                // let result =
-                //     match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
-                //         Ok(Some(results)) => results??,
-                //         Ok(None) => return Ok(None),
-                //         Err(_) => return Ok(None),
-                //     };
-                let key = keys[0].clone();
-                let mut receiver = if let Some(sender) = stream_blocklist.lock().await.get(&key) {
-                    sender.subscribe()
-                } else {
-                    let (sender, receiver) = broadcast::channel(8);
-                    blocklist.insert(key.to_string(), sender).unwrap();
-                    receiver
-                };
+            // let result =
+            //     match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
+            //         Ok(Some(results)) => results??,
+            //         Ok(None) => return Ok(None),
+            //         Err(_) => return Ok(None),
+            //     };
+            let key = keys[0].clone();
+            let mut receiver = if let Some(sender) = stream_blocklist.lock().await.get(&key) {
+                sender.subscribe()
+            } else {
+                let (sender, receiver) = broadcast::channel(8);
+                blocklist.insert(key.to_string(), sender).unwrap();
+                receiver
+            };
 
-                let result = timeout(Duration::from_millis(time as u64), receiver.recv()).await;
-                match result {
-                    Ok(result) => Ok(Some(vec![result?])),
-                    Err(_) => Ok(None),
+            let result = receiver.recv().await?;
+            Ok(Some(vec![result]))
+        } else {
+            let mut results = vec![];
+            keys.iter().zip(ids.iter()).for_each(|(key, id)| {
+                if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+                    let result = stream.partition_point(|value| value.id < *id);
+                    results.push((key.to_string(), stream[result..].to_vec()));
                 }
-            }
-            None => {
-                let mut results = vec![];
-                keys.iter().zip(ids.iter()).for_each(|(key, id)| {
-                    if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-                        let result = stream.partition_point(|value| value.id < *id);
-                        results.push((key.to_string(), stream[result..].to_vec()));
-                    }
-                });
-                Ok(Some(results))
-            }
+            });
+            Ok(Some(results))
         }
     }
 }
