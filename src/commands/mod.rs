@@ -449,11 +449,11 @@ where
             if args.len() > 2 {
                 let (responder, receiver) = oneshot::channel();
 
-                let (start_point, block): (usize, Option<usize>) =
+                let (start_point, block, time): (usize, bool, usize) =
                     if args[0].to_lowercase() == "block" {
-                        (3, Some(args[1].parse::<usize>()?))
+                        (3, true, args[1].parse::<usize>()?)
                     } else {
-                        (1, None)
+                        (1, false, 0)
                     };
 
                 let ids: Vec<EntryId> = args[start_point..]
@@ -468,12 +468,12 @@ where
                     .send(RedisCommand::Xread {
                         keys: keys.to_vec(),
                         ids,
-                        block: block.is_some(),
+                        block,
                         responder,
                     })
                     .await?;
 
-                let results = if let Some(time) = block {
+                let results = if block && time != 0 {
                     match timeout(Duration::from_millis(time as u64), receiver).await {
                         Ok(out) => out.unwrap()?,
                         Err(_) => {
