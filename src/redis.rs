@@ -37,12 +37,8 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
 
                 let (_, writer) = socket.split();
 
-                let mut ctx = Context {
-                    out: writer,
-                    db_sender: sender.clone(),
-                    queued: queued.clone(),
-                    queue_list: queue_list.clone(),
-                };
+                let mut ctx =
+                    Context::new(writer, sender.clone(), queued.clone(), queue_list.clone());
 
                 if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
                     eprintln!("ran into error: {err:?}");

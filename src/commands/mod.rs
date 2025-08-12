@@ -191,29 +191,8 @@ where
                     return Ok(());
                 }
             }
-            let queue_list = {
-                let locked_queue_list = ctx.queue_list.lock().await;
-                locked_queue_list.clone()
-            };
-            if queue_list.is_empty() {
-                ctx.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
-                ctx.out
-                    .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
-                    .await?;
-                return Ok(());
-            }
 
-            // for input in queue_list {
-            //     tokio::task::spawn_blocking(move || {
-            //         parse_array_command(input, ctx);
-            //     });
-            // }
-            {
-                let mut locked_queue_list = ctx.queue_list.lock().await;
-                locked_queue_list.clear();
-                let mut queued = ctx.queued.lock().await;
-                *queued = false;
-            }
+            ctx.handle_transactions().await?;
         }
         "get" => {
             if !args.len() > 1 {
