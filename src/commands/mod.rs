@@ -183,14 +183,13 @@ where
         }
         "exec" => {
             {
-                let mut queued = ctx.queued.lock().await;
-                if !*queued {
+                let queued = ctx.queued.lock().await;
+                if !(*queued) {
                     ctx.out
                         .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
                         .await?;
                     return Ok(());
                 }
-                *queued = false;
             }
             let queue_list = {
                 let locked_queue_list = ctx.queue_list.lock().await;
@@ -207,10 +206,12 @@ where
             //         parse_array_command(input, ctx);
             //     });
             // }
-            // {
-            //     let mut locked_queue_list = ctx.queue_list.lock().await;
-            //     locked_queue_list.clear();
-            // }
+            {
+                let mut locked_queue_list = ctx.queue_list.lock().await;
+                locked_queue_list.clear();
+                let mut queued = ctx.queued.lock().await;
+                *queued = false;
+            }
         }
         "get" => {
             if !args.len() > 1 {
