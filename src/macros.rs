@@ -18,3 +18,13 @@ macro_rules! mod_flat {
         )+
     };
 }
+
+#[macro_export]
+macro_rules! mod_pub_flat {
+    [ $( $name:ident $(,)? )+ ] => {
+        $(
+            mod $name;
+            pub use $name::*;
+        )+
+    };
+}

@@ -54,3 +54,28 @@ where
     }
     Ok(())
 }
+pub async fn info_cmd<Writer>(
+    ctx: &mut Context<Writer>,
+    args: &[String],
+) -> Result<(), CommandError>
+where
+    Writer: AsyncWrite + Unpin,
+{
+    if !args.is_empty() {
+        let info = ctx.info();
+        match args[0].to_lowercase().as_str() {
+            "replication" => {
+                let replication = info.replication.clone();
+                ctx.out
+                    .write_all(&Resp::BulkString(format!("role:{}\n", replication.role)).to_bytes())
+                    .await?;
+            }
+            _ => {
+                ctx.out
+                    .write_all(&Resp::simple_error(CommandError::InvalidInput).to_bytes())
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}

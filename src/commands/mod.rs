@@ -140,6 +140,7 @@ where
     match command.to_lowercase().as_str() {
         "exec" => exec_cmd(ctx).await?,
         "discard" => discard_cmd(ctx).await?,
+        "info" => info_cmd(ctx, args).await?,
         _ => {
             let queued = ctx.queued.lock().await;
             if *queued {

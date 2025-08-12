@@ -1,36 +1,6 @@
-use std::{fmt::Display, sync::Arc};
+use std::fmt::Display;
 
 use thiserror::Error;
-use tokio::{
-    io::AsyncWrite,
-    sync::{mpsc, Mutex},
-};
-
-use crate::{commands::RedisCommand, resp::Resp};
-
-pub struct Context<Writer: AsyncWrite + Unpin> {
-    pub out: Writer,
-    pub db_sender: mpsc::Sender<RedisCommand>,
-    pub queued: Arc<Mutex<bool>>,
-    pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
-}
-
-impl<Writer: AsyncWrite + Unpin> Context<Writer> {
-    pub fn new(
-        out: Writer,
-        db_sender: mpsc::Sender<RedisCommand>,
-        queued: Arc<Mutex<bool>>,
-        queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
-    ) -> Self {
-        Self {
-            out,
-            db_sender,
-            queued,
-            queue_list,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct EntryId {
     pub ms_time: usize,
