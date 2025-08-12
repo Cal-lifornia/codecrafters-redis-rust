@@ -294,7 +294,7 @@ impl Database {
             None => {
                 db.insert(key.to_string(), DatabaseEntry::Integer(0))
                     .unwrap();
-                Ok(0)
+                Ok(1)
             }
         }
     }
