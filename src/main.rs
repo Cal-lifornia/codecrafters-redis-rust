@@ -10,7 +10,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port_number = os_args[2].parse::<usize>()?;
     }
 
+    let mut replica_of = false;
+
+    if os_args.len() > 3 && os_args[3] == "--replicaof" {
+        replica_of = true;
+    }
+
     // Uncomment this block to pass the first stage
     //
-    redis::init(format!("127.0.0.1:{port_number}").as_str()).await
+    redis::init(format!("127.0.0.1:{port_number}").as_str(), replica_of).await
 }

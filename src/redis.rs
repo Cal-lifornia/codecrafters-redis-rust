@@ -10,15 +10,23 @@ use crate::{
     commands::parse_array_command,
     db::RedisDatabase,
     resp::{self, Resp},
-    types::Context,
+    types::{Context, RedisInfo, Replication},
 };
 
-pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn init(address: &str, replica: bool) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
     let db = Arc::new(RedisDatabase::default());
+    let role = if replica { "slave" } else { "master" };
+    let info = Arc::new(RedisInfo {
+        replication: Replication {
+            role: role.to_string(),
+            connected_slaves: 0,
+        },
+    });
 
     loop {
         let (mut socket, _) = listener.accept().await?;
+        let info_clone = Arc::clone(&info);
         let db_clone = Arc::clone(&db);
         let sender = db_clone.clone_sender();
         let queue_list = Arc::new(Mutex::new(vec![]));
@@ -38,8 +46,13 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
 
                 let (_, writer) = socket.split();
 
-                let mut ctx =
-                    Context::new(writer, sender.clone(), queued.clone(), queue_list.clone());
+                let mut ctx = Context::new(
+                    writer,
+                    sender.clone(),
+                    queued.clone(),
+                    queue_list.clone(),
+                    info_clone.clone(),
+                );
 
                 if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
                     eprintln!("ran into error: {err:?}");
