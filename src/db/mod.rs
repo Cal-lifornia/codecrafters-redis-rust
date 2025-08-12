@@ -561,7 +561,7 @@ pub enum DatabaseError {
     ChannelRecvError(#[from] broadcast::error::RecvError),
     #[error("Failed to join tasks")]
     TaskJoinError(#[from] tokio::task::JoinError),
-    #[error("Wrong type for key")]
+    #[error("value is not an integer or out of range")]
     WrongType,
 }
 
