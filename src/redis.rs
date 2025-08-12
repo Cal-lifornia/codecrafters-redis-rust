@@ -8,9 +8,9 @@ use tokio::{
 
 use crate::{
     commands::{parse_array_command, RedisCommand},
-    context::Context,
     db::RedisDatabase,
     resp::{self, Resp},
+    types::Context,
 };
 
 pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {

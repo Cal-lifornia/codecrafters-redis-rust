@@ -14,10 +14,9 @@ mod set;
 use set::*;
 
 use crate::{
-    context::Context,
     db::{DatabaseError, DatabaseStreamEntry},
     resp::Resp,
-    types::{self, EntryId},
+    types::{self, Context, EntryId},
 };
 
 #[derive(Debug)]
@@ -128,6 +127,16 @@ pub async fn parse_array_command<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    {
+        let queued = ctx.queued.lock().await;
+        if *queued {
+            let mut queue_list = ctx.queue_list.lock().await;
+            queue_list.push(input.clone());
+            out.write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
+                .await?;
+            return Ok(());
+        }
+    }
     let mut inputs: Vec<String> = vec![];
     for arg in input.clone() {
         if let Resp::BulkString(val) = arg {
@@ -157,6 +166,12 @@ where
         }
         "ping" => {
             out.write_all(&Resp::SimpleString("PONG".to_string()).to_bytes())
+                .await?;
+        }
+        "multi" => {
+            let mut queued = ctx.queued.lock().await;
+            *queued = true;
+            out.write_all(&Resp::SimpleString("Ok".to_string()).to_bytes())
                 .await?;
         }
         "get" => {

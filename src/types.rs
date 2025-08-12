@@ -1,6 +1,15 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use thiserror::Error;
+use tokio::sync::{mpsc, Mutex};
+
+use crate::{commands::RedisCommand, resp::Resp};
+
+pub struct Context {
+    pub db_sender: mpsc::Sender<RedisCommand>,
+    pub queued: Arc<Mutex<bool>>,
+    pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct EntryId {
