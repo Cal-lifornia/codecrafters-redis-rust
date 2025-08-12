@@ -148,6 +148,7 @@ impl RedisDatabase {
                                 .await,
                         )
                         .unwrap();
+                    println!("we are at the post xadd");
                     let mut blocklist = self.stream_blocklist.lock().await;
                     if let Some(sender) = blocklist.remove(&key) {
                         match sender.send((key, vec![DatabaseStreamEntry { id, values }])) {
