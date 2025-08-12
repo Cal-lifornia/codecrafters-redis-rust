@@ -29,8 +29,8 @@ impl From<std::io::Error> for RespError {
     }
 }
 
-const CR: u8 = b'\r';
-const LF: u8 = b'\n';
+pub const CR: u8 = b'\r';
+pub const LF: u8 = b'\n';
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Resp {
@@ -51,6 +51,16 @@ impl Resp {
         Self::SimpleError(format!("ERR {input}"))
     }
 }
+
+// pub fn byte_vec_to_resp(inputs: Vec<&[u8]>) -> Bytes {
+//     let mut result = BytesMut::new();
+//     result.put_u8(b'*');
+//     result.put(inputs.len().to_string().as_bytes());
+//     for input in inputs {
+//         result.put(input);
+//     }
+//     result.into()
+// }
 
 impl From<Resp> for Bytes {
     fn from(val: Resp) -> Self {
@@ -106,6 +116,7 @@ impl From<Resp> for Bytes {
         buf.into()
     }
 }
+
 impl From<HashMap<String, String>> for Resp {
     fn from(value: HashMap<String, String>) -> Self {
         let mut results: Vec<String> = vec![];
