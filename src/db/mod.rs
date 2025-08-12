@@ -61,7 +61,7 @@ impl RedisDatabase {
                 Get {
                     key,
                     responder: resp,
-                } => resp.send(self.db.get_string(&key).await).unwrap(),
+                } => resp.send(self.db.get_key_value(&key).await).unwrap(),
 
                 Set { args, responder } => responder
                     .send(
@@ -262,25 +262,21 @@ impl Database {
         }
     }
 
-    pub async fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
-        let expired = {
-            let db = self.0.read().await;
-            if let Some(DatabaseEntry::String(entry)) = db.get(key) {
-                if !entry.is_expired() {
-                    return Ok(Some(entry.value().to_string()));
+    pub async fn get_key_value(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+        let db = self.0.read().await;
+        match db.get(key) {
+            Some(DatabaseEntry::String(value)) => {
+                if !value.is_expired() {
+                    Ok(Some(value.value().to_string()))
                 } else {
-                    true
+                    let mut db = self.0.write().await;
+                    db.remove(key);
+                    Ok(None)
                 }
-            } else {
-                return Ok(None);
             }
-        };
-
-        if expired {
-            let mut db = self.0.write().await;
-            db.remove(key);
+            Some(DatabaseEntry::Integer(value)) => Ok(Some(value.to_string())),
+            Some(_) | None => Ok(None),
         }
-        Ok(None)
     }
 
     pub async fn increase_integer(&self, key: &str) -> Result<i32, DatabaseError> {
