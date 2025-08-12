@@ -192,10 +192,16 @@ where
                 }
                 *queued = false;
             }
-            // let queue_list = {
-            //     let locked_queue_list = ctx.queue_list.lock().await;
-            //     locked_queue_list.clone()
-            // };
+            let queue_list = {
+                let locked_queue_list = ctx.queue_list.lock().await;
+                locked_queue_list.clone()
+            };
+            if queue_list.is_empty() {
+                ctx.out
+                    .write_all(&Resp::StringArray(vec![]).to_bytes())
+                    .await?;
+            }
+
             // for input in queue_list {
             //     tokio::task::spawn_blocking(move || {
             //         parse_array_command(input, ctx);
