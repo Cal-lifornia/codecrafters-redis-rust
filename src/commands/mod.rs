@@ -456,17 +456,28 @@ where
                         (1, false, 0)
                     };
 
-                let ids: Vec<EntryId> = args[start_point..]
-                    .iter()
-                    .rev()
-                    .map_while(|val| EntryId::try_from(val.clone()).ok())
-                    .collect();
+                let (ids, keys): (Vec<EntryId>, Vec<String>) = if args.last().unwrap() == "$" {
+                    (
+                        vec![EntryId {
+                            ms_time: 0,
+                            sequence: 0,
+                        }],
+                        args[start_point..args.len()].to_vec(),
+                    )
+                } else {
+                    let ids: Vec<EntryId> = args[start_point..]
+                        .iter()
+                        .rev()
+                        .map_while(|val| EntryId::try_from(val.clone()).ok())
+                        .collect();
 
-                let keys = &args[start_point..(start_point + ids.len())];
+                    let keys = &args[start_point..(start_point + ids.len())];
+                    (ids, keys.to_vec())
+                };
 
                 ctx.db_sender
                     .send(RedisCommand::Xread {
-                        keys: keys.to_vec(),
+                        keys,
                         ids,
                         block,
                         responder,
