@@ -196,9 +196,7 @@ where
                 locked_queue_list.clone()
             };
             if queue_list.is_empty() {
-                ctx.out
-                    .write_all(&Resp::StringArray(vec![]).to_bytes())
-                    .await?;
+                ctx.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
             }
 
             // for input in queue_list {
