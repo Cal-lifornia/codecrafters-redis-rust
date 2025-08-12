@@ -38,6 +38,10 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         }
     }
     pub async fn handle_transactions(&mut self) -> Result<(), CommandError> {
+        {
+            let mut queued = self.queued.lock().await;
+            *queued = false;
+        }
         let queue_list = {
             let locked_queue_list = self.queue_list.lock().await;
             locked_queue_list.clone()
@@ -54,17 +58,15 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         self.out
             .write_all(queue_list.len().to_string().as_bytes())
             .await?;
+        self.out.write_all(&[CR, LF]).await?;
         for input in queue_list {
             let result = Box::pin(parse_array_command(input, self));
             result.await?;
         }
-        self.out.write_all(&[CR, LF]).await?;
 
         {
             let mut locked_queue_list = self.queue_list.lock().await;
             locked_queue_list.clear();
-            let mut queued = self.queued.lock().await;
-            *queued = false;
         }
         Ok(())
     }
