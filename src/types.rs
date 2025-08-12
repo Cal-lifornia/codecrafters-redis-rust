@@ -61,7 +61,14 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         self.out.write_all(&[CR, LF]).await?;
         for input in queue_list {
             let result = Box::pin(parse_array_command(input, self));
-            result.await?;
+            match result.await {
+                Ok(_) => {}
+                Err(err) => {
+                    self.out
+                        .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
+                        .await?;
+                }
+            }
         }
 
         {
