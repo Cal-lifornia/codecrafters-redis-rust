@@ -15,6 +15,7 @@ pub type StreamBlocklist = Arc<
 #[derive(Debug, Clone)]
 pub enum DatabaseEntry {
     String(DatabaseString),
+    Integer(i32),
     List(VecDeque<String>),
     Stream(Vec<DatabaseStreamEntry>),
 }

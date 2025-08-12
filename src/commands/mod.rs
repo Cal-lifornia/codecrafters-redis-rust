@@ -30,6 +30,10 @@ pub enum RedisCommand {
         args: SetCommandArgs,
         responder: Responder<()>,
     },
+    Incr {
+        key: String,
+        responder: Responder<i32>,
+    },
     Rpush {
         key: String,
         values: Vec<String>,
@@ -189,6 +193,17 @@ where
                 .await?;
             receiver.await.unwrap()?;
             out.write_all(&Resp::BulkString("OK".to_string()).to_bytes())
+                .await?;
+        }
+        "incr" => {
+            let (responder, receiver) = oneshot::channel();
+            ctx.db_sender
+                .send(RedisCommand::Incr {
+                    key: args[0].clone(),
+                    responder,
+                })
+                .await?;
+            out.write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "rpush" => {

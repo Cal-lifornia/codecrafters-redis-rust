@@ -66,9 +66,12 @@ impl RedisDatabase {
                 Set { args, responder } => responder
                     .send(
                         self.db
-                            .set_string(&args.key, &args.value, args.expiry, args.keep_ttl)
+                            .set_key_value(&args.key, &args.value, args.expiry, args.keep_ttl)
                             .await,
                     )
+                    .unwrap(),
+                Incr { key, responder } => responder
+                    .send(self.db.increase_integer(&key).await)
                     .unwrap(),
                 Rpush {
                     key,
@@ -225,7 +228,7 @@ impl Database {
     //         .map(|(key, _)| key.clone())
     //         .collect())
     // }
-    pub async fn set_string(
+    pub async fn set_key_value(
         &self,
         key: &str,
         value: &str,
@@ -235,20 +238,28 @@ impl Database {
         let mut db = self.0.write().await;
         let expiry = expires.map(|e| Instant::now() + e);
 
-        if keep_ttl {
-            if let Some(DatabaseEntry::String(entry)) = db.get_mut(key) {
-                if !entry.is_expired() {
-                    entry.update_value_ttl_expiry(value);
-                    return Ok(());
+        match value.parse::<i32>() {
+            Ok(value) => {
+                db.insert(key.to_string(), DatabaseEntry::Integer(value));
+                Ok(())
+            }
+            Err(_) => {
+                if keep_ttl {
+                    if let Some(DatabaseEntry::String(entry)) = db.get_mut(key) {
+                        if !entry.is_expired() {
+                            entry.update_value_ttl_expiry(value);
+                            return Ok(());
+                        }
+                    }
                 }
+
+                db.insert(
+                    key.to_string(),
+                    DatabaseEntry::String(DatabaseString::new(value, expiry)),
+                );
+                Ok(())
             }
         }
-
-        db.insert(
-            key.to_string(),
-            DatabaseEntry::String(DatabaseString::new(value, expiry)),
-        );
-        Ok(())
     }
 
     pub async fn get_string(&self, key: &str) -> Result<Option<String>, DatabaseError> {
@@ -270,6 +281,22 @@ impl Database {
             db.remove(key);
         }
         Ok(None)
+    }
+
+    pub async fn increase_integer(&self, key: &str) -> Result<i32, DatabaseError> {
+        let mut db = self.0.write().await;
+        match db.get_mut(key) {
+            Some(DatabaseEntry::Integer(value)) => {
+                *value += 1;
+                Ok(value.clone())
+            }
+            Some(_) => Err(DatabaseError::WrongType),
+            None => {
+                db.insert(key.to_string(), DatabaseEntry::Integer(0))
+                    .unwrap();
+                Ok(0)
+            }
+        }
     }
 
     pub async fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
@@ -533,6 +560,8 @@ pub enum DatabaseError {
     ChannelRecvError(#[from] broadcast::error::RecvError),
     #[error("Failed to join tasks")]
     TaskJoinError(#[from] tokio::task::JoinError),
+    #[error("Wrong type for key")]
+    WrongType,
 }
 
 impl From<oneshot::error::RecvError> for DatabaseError {
