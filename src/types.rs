@@ -2,22 +2,17 @@ use std::{fmt::Display, sync::Arc};
 
 use thiserror::Error;
 use tokio::{
-    io::{AsyncWrite, AsyncWriteExt},
+    io::AsyncWrite,
     sync::{mpsc, Mutex},
 };
 
-use crate::{
-    commands::{parse_array_command, CommandError, RedisCommand},
-    resp::{Resp, CR, LF},
-};
+use crate::{commands::RedisCommand, resp::Resp};
 
 pub struct Context<Writer: AsyncWrite + Unpin> {
     pub out: Writer,
     pub db_sender: mpsc::Sender<RedisCommand>,
     pub queued: Arc<Mutex<bool>>,
     pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
-    // pub transaction_tx: mpsc::Sender<bool>,
-    // transaction_rx: mpsc::Receiver<bool>,
 }
 
 impl<Writer: AsyncWrite + Unpin> Context<Writer> {
@@ -27,55 +22,12 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         queued: Arc<Mutex<bool>>,
         queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     ) -> Self {
-        // let (transaction_tx, transaction_rx) = mpsc::channel(4);
         Self {
             out,
             db_sender,
             queued,
             queue_list,
-            // transaction_tx,
-            // transaction_rx,
         }
-    }
-    pub async fn handle_transactions(&mut self) -> Result<(), CommandError> {
-        {
-            let mut queued = self.queued.lock().await;
-            *queued = false;
-        }
-        let queue_list = {
-            let locked_queue_list = self.queue_list.lock().await;
-            locked_queue_list.clone()
-        };
-        if queue_list.is_empty() {
-            self.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
-            self.out
-                .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
-                .await?;
-            return Ok(());
-        }
-
-        self.out.write_all(b"*").await?;
-        self.out
-            .write_all(queue_list.len().to_string().as_bytes())
-            .await?;
-        self.out.write_all(&[CR, LF]).await?;
-        for input in queue_list {
-            let result = Box::pin(parse_array_command(input, self));
-            match result.await {
-                Ok(_) => {}
-                Err(err) => {
-                    self.out
-                        .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
-                        .await?;
-                }
-            }
-        }
-
-        {
-            let mut locked_queue_list = self.queue_list.lock().await;
-            locked_queue_list.clear();
-        }
-        Ok(())
     }
 }
 

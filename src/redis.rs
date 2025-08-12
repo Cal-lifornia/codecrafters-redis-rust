@@ -16,6 +16,7 @@ use crate::{
 pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
     let db = Arc::new(RedisDatabase::default());
+
     loop {
         let (mut socket, _) = listener.accept().await?;
         let db_clone = Arc::clone(&db);

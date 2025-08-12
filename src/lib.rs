@@ -5,6 +5,7 @@ use crate::commands::CommandError;
 
 pub mod commands;
 pub mod db;
+mod macros;
 pub mod redis;
 pub mod resp;
 pub mod types;
