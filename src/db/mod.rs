@@ -288,7 +288,7 @@ impl Database {
         match db.get_mut(key) {
             Some(DatabaseEntry::Integer(value)) => {
                 *value += 1;
-                Ok(value.clone())
+                Ok(*value)
             }
             Some(_) => Err(DatabaseError::WrongType),
             None => {
@@ -451,6 +451,7 @@ impl Database {
             Some(DatabaseEntry::String(_)) => Ok("string".into()),
             Some(DatabaseEntry::List(_)) => Ok("list".into()),
             Some(DatabaseEntry::Stream(_)) => Ok("stream".into()),
+            Some(DatabaseEntry::Integer(_)) => Ok("integer".into()),
             None => Ok("none".into()),
         }
     }
