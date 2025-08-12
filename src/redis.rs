@@ -3,11 +3,11 @@ use std::{io::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::mpsc,
+    sync::Mutex,
 };
 
 use crate::{
-    commands::{parse_array_command, RedisCommand},
+    commands::parse_array_command,
     db::RedisDatabase,
     resp::{self, Resp},
     types::Context,
@@ -16,11 +16,13 @@ use crate::{
 pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
     let db = Arc::new(RedisDatabase::default());
+    let queue_list = Arc::new(Mutex::new(vec![]));
 
     loop {
         let (mut socket, _) = listener.accept().await?;
         let db_clone = Arc::clone(&db);
         let sender = db_clone.clone_sender();
+        let ql_clone = Arc::clone(&queue_list);
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             loop {
@@ -33,9 +35,16 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
                     }
                 };
 
-                let (_, mut writer) = socket.split();
+                let (_, writer) = socket.split();
 
-                if let Err(err) = parse_input(&mut writer, &buf[0..n], sender.clone()).await {
+                let mut ctx = Context {
+                    out: writer,
+                    db_sender: sender.clone(),
+                    queued: Arc::new(Mutex::new(false)),
+                    queue_list: ql_clone.clone(),
+                };
+
+                if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
                     eprintln!("ran into error: {err:?}");
                     return;
                 }
@@ -49,19 +58,16 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn parse_input<Writer>(
-    out: &mut Writer,
-    buf: &[u8],
-    db_sender: mpsc::Sender<RedisCommand>,
-) -> Result<(), std::io::Error>
+async fn parse_input<Writer>(buf: &[u8], ctx: &mut Context<Writer>) -> Result<(), std::io::Error>
 where
     Writer: AsyncWrite + Unpin,
 {
     if let (Resp::Array(contents), _) = resp::parse(buf).unwrap() {
-        match parse_array_command(out, contents, &Context { db_sender }).await {
+        match parse_array_command(contents, ctx).await {
             Ok(_) => Ok(()),
             Err(err) => {
-                out.write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
+                ctx.out
+                    .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
                     .await
             }
         }

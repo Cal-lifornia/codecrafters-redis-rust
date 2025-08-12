@@ -120,9 +120,8 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
 pub type Responder<T> = oneshot::Sender<Result<T, DatabaseError>>;
 
 pub async fn parse_array_command<Writer>(
-    out: &mut Writer,
     input: Vec<Resp>,
-    ctx: &Context,
+    ctx: &mut Context<Writer>,
 ) -> Result<(), CommandError>
 where
     Writer: AsyncWrite + Unpin,
@@ -132,7 +131,8 @@ where
         if *queued {
             let mut queue_list = ctx.queue_list.lock().await;
             queue_list.push(input.clone());
-            out.write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
+            ctx.out
+                .write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
                 .await?;
             return Ok(());
         }
@@ -142,7 +142,8 @@ where
         if let Resp::BulkString(val) = arg {
             inputs.push(val);
         } else {
-            out.write_all(&Resp::SimpleString(CommandError::InvalidInput.to_string()).to_bytes())
+            ctx.out
+                .write_all(&Resp::SimpleString(CommandError::InvalidInput.to_string()).to_bytes())
                 .await
                 .unwrap();
             return Ok(());
@@ -154,24 +155,30 @@ where
     match command.to_lowercase().as_str() {
         "echo" => {
             if args.len() == 1 {
-                out.write_all(&Resp::BulkString(args[0].to_string()).to_bytes())
+                ctx.out
+                    .write_all(&Resp::BulkString(args[0].to_string()).to_bytes())
                     .await?;
             } else {
-                out.write_all(
-                    &Resp::SimpleError(CommandError::WrongNumArgs("echo".to_string()).to_string())
+                ctx.out
+                    .write_all(
+                        &Resp::SimpleError(
+                            CommandError::WrongNumArgs("echo".to_string()).to_string(),
+                        )
                         .to_bytes(),
-                )
-                .await?;
+                    )
+                    .await?;
             }
         }
         "ping" => {
-            out.write_all(&Resp::SimpleString("PONG".to_string()).to_bytes())
+            ctx.out
+                .write_all(&Resp::SimpleString("PONG".to_string()).to_bytes())
                 .await?;
         }
         "multi" => {
             let mut queued = ctx.queued.lock().await;
             *queued = true;
-            out.write_all(&Resp::SimpleString("Ok".to_string()).to_bytes())
+            ctx.out
+                .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
                 .await?;
         }
         "get" => {
@@ -185,17 +192,21 @@ where
                     .await?;
                 match receiver.await.unwrap()? {
                     Some(val) => {
-                        out.write_all(&Resp::SimpleString(val).to_bytes()).await?;
+                        ctx.out
+                            .write_all(&Resp::SimpleString(val).to_bytes())
+                            .await?;
                     }
                     None => {
-                        out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                        ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
                     }
                 };
             } else {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("get".to_string())).to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("get".to_string()))
+                            .to_bytes(),
+                    )
+                    .await?;
             }
         }
         "set" => {
@@ -207,7 +218,8 @@ where
                 })
                 .await?;
             receiver.await.unwrap()?;
-            out.write_all(&Resp::BulkString("OK".to_string()).to_bytes())
+            ctx.out
+                .write_all(&Resp::BulkString("OK".to_string()).to_bytes())
                 .await?;
         }
         "incr" => {
@@ -218,7 +230,8 @@ where
                     responder,
                 })
                 .await?;
-            out.write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
+            ctx.out
+                .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "rpush" => {
@@ -230,7 +243,8 @@ where
                     responder,
                 })
                 .await?;
-            out.write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
+            ctx.out
+                .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "lpush" => {
@@ -242,7 +256,8 @@ where
                     responder,
                 })
                 .await?;
-            out.write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
+            ctx.out
+                .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "lrange" => {
@@ -259,7 +274,8 @@ where
                     responder,
                 })
                 .await?;
-            out.write_all(&Resp::StringArray(receiver.await.unwrap()?).to_bytes())
+            ctx.out
+                .write_all(&Resp::StringArray(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "llen" => {
@@ -275,7 +291,8 @@ where
                 })
                 .await?;
 
-            out.write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
+            ctx.out
+                .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
                 .await?;
         }
         "lpop" => {
@@ -301,21 +318,25 @@ where
             match receiver.await.unwrap()? {
                 Some(list) => {
                     if list.len() == 1 {
-                        out.write_all(&Resp::BulkString(list[0].clone()).to_bytes())
+                        ctx.out
+                            .write_all(&Resp::BulkString(list[0].clone()).to_bytes())
                             .await?
                     } else {
-                        out.write_all(&Resp::StringArray(list).to_bytes()).await?
+                        ctx.out
+                            .write_all(&Resp::StringArray(list).to_bytes())
+                            .await?
                     }
                 }
-                None => out.write_all(&Resp::NullBulkString.to_bytes()).await?,
+                None => ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?,
             };
         }
         "blpop" => {
             if args.len() > 2 {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes(),
+                    )
+                    .await?;
             } else {
                 let (responder, receiver) = oneshot::channel();
 
@@ -337,7 +358,7 @@ where
                     match timeout {
                         Ok(result) => result.unwrap(),
                         Err(_) => {
-                            out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                            ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
                             return Ok(());
                         }
                     }
@@ -346,13 +367,15 @@ where
                 };
 
                 if let Some(results) = response? {
-                    out.write_all(&Resp::StringArray(results).to_bytes())
+                    ctx.out
+                        .write_all(&Resp::StringArray(results).to_bytes())
                         .await?;
                 } else {
-                    out.write_all(
-                        &Resp::SimpleError("failed to get results".to_string()).to_bytes(),
-                    )
-                    .await?;
+                    ctx.out
+                        .write_all(
+                            &Resp::SimpleError("failed to get results".to_string()).to_bytes(),
+                        )
+                        .await?;
                 }
             }
         }
@@ -365,13 +388,15 @@ where
                         responder,
                     })
                     .await?;
-                out.write_all(&Resp::SimpleString(receiver.await.unwrap()?).to_bytes())
+                ctx.out
+                    .write_all(&Resp::SimpleString(receiver.await.unwrap()?).to_bytes())
                     .await?;
             } else {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes(),
+                    )
+                    .await?;
             }
         }
         "xadd" => {
@@ -394,11 +419,14 @@ where
                 });
 
                 let (id, wildcard) = if args[1] == "0-0" {
-                    out.write_all(
-                        &Resp::simple_error("The ID specified in XADD must be greater than 0-0")
+                    ctx.out
+                        .write_all(
+                            &Resp::simple_error(
+                                "The ID specified in XADD must be greater than 0-0",
+                            )
                             .to_bytes(),
-                    )
-                    .await?;
+                        )
+                        .await?;
                     return Ok(());
                 } else if args[1] != "*" {
                     EntryId::new_or_wildcard_from_string(args[1].clone())?
@@ -430,12 +458,14 @@ where
                   Some(id) => Resp::BulkString(id).to_bytes(),
                   None => Resp::simple_error("The ID specified in XADD is equal or smaller than the target stream top item").to_bytes(),  
                 };
-                out.write_all(&results).await?;
+                ctx.out.write_all(&results).await?;
             } else {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string())).to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string()))
+                            .to_bytes(),
+                    )
+                    .await?;
             }
         }
         "xrange" => {
@@ -461,18 +491,19 @@ where
                     .await?;
                 let results = receiver.await.unwrap()?;
                 if results.is_empty() {
-                    out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
+                    ctx.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
                     return Ok(());
                 }
 
                 let output: Vec<Resp> = results.iter().map(|vals| vals.clone().into()).collect();
-                out.write_all(&Resp::Array(output).to_bytes()).await?;
+                ctx.out.write_all(&Resp::Array(output).to_bytes()).await?;
             } else {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("xrange".to_string()))
-                        .to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("xrange".to_string()))
+                            .to_bytes(),
+                    )
+                    .await?;
             }
         }
         "xread" => {
@@ -518,7 +549,7 @@ where
                     match timeout(Duration::from_millis(time as u64), receiver).await {
                         Ok(out) => out.unwrap()?,
                         Err(_) => {
-                            out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                            ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
                             return Ok(());
                         }
                     }
@@ -535,20 +566,24 @@ where
                         ])
                     })
                     .collect();
-                out.write_all(&Resp::Array(output).to_bytes()).await?;
+                ctx.out.write_all(&Resp::Array(output).to_bytes()).await?;
             } else {
-                out.write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string())).to_bytes(),
-                )
-                .await?;
+                ctx.out
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string()))
+                            .to_bytes(),
+                    )
+                    .await?;
             }
         }
 
         _ => {
-            out.write_all(
-                &Resp::simple_error(CommandError::InvalidCommand(inputs[0].to_string())).to_bytes(),
-            )
-            .await?;
+            ctx.out
+                .write_all(
+                    &Resp::simple_error(CommandError::InvalidCommand(inputs[0].to_string()))
+                        .to_bytes(),
+                )
+                .await?;
         }
     };
     Ok(())
