@@ -181,6 +181,31 @@ where
                 .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
                 .await?;
         }
+        "exec" => {
+            {
+                let mut queued = ctx.queued.lock().await;
+                if !*queued {
+                    ctx.out
+                        .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
+                        .await?;
+                    return Ok(());
+                }
+                *queued = false;
+            }
+            // let queue_list = {
+            //     let locked_queue_list = ctx.queue_list.lock().await;
+            //     locked_queue_list.clone()
+            // };
+            // for input in queue_list {
+            //     tokio::task::spawn_blocking(move || {
+            //         parse_array_command(input, ctx);
+            //     });
+            // }
+            // {
+            //     let mut locked_queue_list = ctx.queue_list.lock().await;
+            //     locked_queue_list.clear();
+            // }
+        }
         "get" => {
             if !args.len() > 1 {
                 let (responder, receiver) = oneshot::channel();
