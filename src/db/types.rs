@@ -4,14 +4,13 @@ use std::{
     time::Instant,
 };
 
-use tokio::sync::broadcast;
-
 use crate::{commands::Responder, types::EntryId};
 
 pub type ListBlocklist =
     Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<Vec<String>>>>>>>;
-pub type StreamBlocklist =
-    Arc<tokio::sync::Mutex<HashMap<String, broadcast::Sender<(String, Vec<DatabaseStreamEntry>)>>>>;
+pub type StreamBlocklist = Arc<
+    tokio::sync::Mutex<HashMap<String, Vec<Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>>>>,
+>;
 
 #[derive(Debug, Clone)]
 pub enum DatabaseEntry {

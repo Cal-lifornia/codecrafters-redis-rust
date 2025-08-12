@@ -8,7 +8,6 @@ use thiserror::Error;
 use tokio::{
     sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
     task::JoinSet,
-    time::timeout,
 };
 
 use crate::{
@@ -148,14 +147,25 @@ impl RedisDatabase {
                                 .await,
                         )
                         .unwrap();
-                    println!("we are at the post xadd");
                     let mut blocklist = self.stream_blocklist.lock().await;
-                    if let Some(sender) = blocklist.remove(&key) {
-                        match sender.send((key, vec![DatabaseStreamEntry { id, values }])) {
-                            Ok(_) => {}
-                            Err(_) => {
-                                "failed to send xadd".to_string();
-                            }
+                    let tasks = if let Some(waiters) = blocklist.remove(&key) {
+                        let mut tasks = JoinSet::new();
+                        for waiter in waiters {
+                            let key = key.clone();
+                            let values = values.clone();
+                            tasks.spawn(async move {
+                                waiter
+                                    .send(Ok(vec![(key, vec![DatabaseStreamEntry { id, values }])]))
+                            });
+                        }
+                        Some(tasks)
+                    } else {
+                        None
+                    };
+                    drop(blocklist);
+                    if let Some(mut tasks) = tasks {
+                        if let Some(Err(err)) = tasks.join_next().await {
+                            err.to_string();
                         }
                     }
                 }
@@ -175,13 +185,16 @@ impl RedisDatabase {
                     block,
                     responder,
                 } => {
-                    responder
-                        .send(
-                            self.db
-                                .read_stream(&keys, &ids, block, &self.stream_blocklist.clone())
-                                .await,
-                        )
-                        .unwrap();
+                    if let Ok(Some(results)) = self.db.read_stream(&keys, &ids, block).await {
+                        responder.send(Ok(results)).unwrap();
+                    } else {
+                        let mut blockers = self.stream_blocklist.lock().await;
+                        if let Some(list) = blockers.get_mut(&keys[0].clone()) {
+                            list.push(responder);
+                        } else {
+                            blockers.insert(keys[0].clone(), vec![responder]);
+                        }
+                    }
                 }
             }
         }
@@ -483,42 +496,10 @@ impl Database {
         keys: &[String],
         ids: &[EntryId],
         block: bool,
-        stream_blocklist: &StreamBlocklist,
     ) -> Result<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>, DatabaseError> {
         let db = self.0.read().await;
         if block {
-            let mut receiver = {
-                let mut blocklist = stream_blocklist.lock().await;
-                // let mut joinset = JoinSet::new();
-                // for key in keys {
-                //     if let Some(sender) = stream_blocklist.lock().await.get(key) {
-                //         let mut receiver = sender.subscribe();
-                //         joinset.spawn(async move { receiver.recv().await });
-                //     } else {
-                //         let (sender, mut receiver) = broadcast::channel(8);
-                //         blocklist.insert(key.to_string(), sender).unwrap();
-
-                //         joinset.spawn(async move { receiver.recv().await });
-                //     }
-                // }
-
-                // let result =
-                //     match timeout(Duration::from_millis(time as u64), joinset.join_next()).await {
-                //         Ok(Some(results)) => results??,
-                //         Ok(None) => return Ok(None),
-                //         Err(_) => return Ok(None),
-                //     };
-                let key = keys[0].clone();
-                if let Some(sender) = stream_blocklist.lock().await.get(&key) {
-                    sender.subscribe()
-                } else {
-                    let (sender, receiver) = broadcast::channel(8);
-                    blocklist.insert(key.to_string(), sender).unwrap();
-                    receiver
-                }
-            };
-            let result = receiver.recv().await?;
-            Ok(Some(vec![result]))
+            Ok(None)
         } else {
             let mut results = vec![];
             keys.iter().zip(ids.iter()).for_each(|(key, id)| {
