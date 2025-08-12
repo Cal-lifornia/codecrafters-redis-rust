@@ -126,17 +126,6 @@ pub async fn parse_array_command<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
-    {
-        let queued = ctx.queued.lock().await;
-        if *queued {
-            let mut queue_list = ctx.queue_list.lock().await;
-            queue_list.push(input.clone());
-            ctx.out
-                .write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
-                .await?;
-            return Ok(());
-        }
-    }
     let mut inputs: Vec<String> = vec![];
     for arg in input.clone() {
         if let Resp::BulkString(val) = arg {
@@ -151,6 +140,17 @@ where
     }
 
     let (command, args) = inputs.split_first().unwrap();
+    if command.to_lowercase().as_str() != "exec" {
+        let queued = ctx.queued.lock().await;
+        if *queued {
+            let mut queue_list = ctx.queue_list.lock().await;
+            queue_list.push(input.clone());
+            ctx.out
+                .write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
+                .await?;
+            return Ok(());
+        }
+    }
 
     match command.to_lowercase().as_str() {
         "echo" => {
