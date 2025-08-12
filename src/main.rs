@@ -1,11 +1,16 @@
+use std::env::args;
+
 use codecrafters_redis::redis::{self};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
+    let os_args: Vec<String> = args().collect();
+    let mut port_number = 6379;
+    if os_args.len() > 1 && os_args[1] == "--port" {
+        port_number = os_args[2].parse::<usize>()?;
+    }
 
     // Uncomment this block to pass the first stage
     //
-    redis::init("127.0.0.1:6379").await
+    redis::init(format!("127.0.0.1:{port_number}").as_str()).await
 }
