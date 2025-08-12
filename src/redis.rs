@@ -16,15 +16,13 @@ use crate::{
 pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
     let db = Arc::new(RedisDatabase::default());
-    let queue_list = Arc::new(Mutex::new(vec![]));
-    let queued = Arc::new(Mutex::new(false));
-
     loop {
         let (mut socket, _) = listener.accept().await?;
         let db_clone = Arc::clone(&db);
         let sender = db_clone.clone_sender();
-        let ql_clone = Arc::clone(&queue_list);
-        let q_clone = Arc::clone(&queued);
+        let queue_list = Arc::new(Mutex::new(vec![]));
+        let queued = Arc::new(Mutex::new(false));
+
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             loop {
@@ -42,8 +40,8 @@ pub async fn init(address: &str) -> Result<(), Box<dyn std::error::Error>> {
                 let mut ctx = Context {
                     out: writer,
                     db_sender: sender.clone(),
-                    queued: q_clone.clone(),
-                    queue_list: ql_clone.clone(),
+                    queued: queued.clone(),
+                    queue_list: queue_list.clone(),
                 };
 
                 if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
