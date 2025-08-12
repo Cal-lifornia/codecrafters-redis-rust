@@ -292,7 +292,7 @@ impl Database {
             }
             Some(_) => Err(DatabaseError::WrongType),
             None => {
-                db.insert(key.to_string(), DatabaseEntry::Integer(0));
+                db.insert(key.to_string(), DatabaseEntry::Integer(1));
                 Ok(1)
             }
         }
