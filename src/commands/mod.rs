@@ -197,6 +197,7 @@ where
             };
             if queue_list.is_empty() {
                 ctx.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
+                return Ok(());
             }
 
             // for input in queue_list {
