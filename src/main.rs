@@ -10,10 +10,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         port_number = os_args[2].parse::<usize>()?;
     }
 
-    let mut replica_of = false;
+    let mut replica_of = None;
 
     if os_args.len() > 3 && os_args[3] == "--replicaof" {
-        replica_of = true;
+        replica_of = Some(os_args[4].to_string());
     }
 
     // Uncomment this block to pass the first stage

@@ -9,17 +9,39 @@ use tokio::{
 use crate::{
     commands::parse_array_command,
     db::RedisDatabase,
+    replication::connect_to_host,
     resp::{self, Resp},
     types::{Context, RedisInfo, Replication},
 };
 
-pub async fn init(address: &str, replica: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn init(
+    address: &str,
+    replica: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(address).await?;
     let db = Arc::new(RedisDatabase::default());
-    let role = if replica { "slave" } else { "master" };
+    let (role, host_addr) = if let Some(host) = replica {
+        let host_option = host.split_whitespace().take(2).collect::<Vec<_>>();
+        let host_name = if host_option[0] == "localhost" {
+            "127.0.0.1"
+        } else {
+            host_option[0]
+        };
+
+        ("slave", format!("{}:{}", host_name, host_option[1]))
+    } else {
+        ("master", "".to_string())
+    };
     let info = Arc::new(RedisInfo {
-        replication: Replication::new(role.to_string(), 0, 0),
+        replication: Replication::new(role.to_string(), host_addr.clone(), 0, 0),
     });
+
+    if role == "slave" {
+        if let Err(err) = connect_to_host(host_addr).await {
+            eprintln!("failed to connect to master; err = {err:?}");
+            return Err(err);
+        }
+    }
 
     loop {
         let (mut socket, _) = listener.accept().await?;
