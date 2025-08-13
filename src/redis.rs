@@ -2,14 +2,14 @@ use std::{io::Error, sync::Arc};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
-    net::TcpListener,
-    sync::{Mutex, RwLock},
+    net::{TcpListener, TcpStream},
+    sync::{mpsc, Mutex, RwLock},
 };
 
 use crate::{
-    commands::parse_array_command,
+    commands::{parse_array_command, RedisCommand},
     db::RedisDatabase,
-    replication::connect_to_host,
+    replication::{connect_to_host, read_host_connection},
     resp::{self, Resp},
     types::{Context, RedisInfo, ReplicationInfo},
 };
@@ -44,57 +44,78 @@ pub async fn init(
             replication: ReplicationInfo::new_slave(role.to_string(), host_addr.clone()),
         }
     };
+    let arc_info = Arc::new(RwLock::new(info.clone()));
 
     if role == "slave" {
-        if let Err(err) = connect_to_host(host_addr, info.clone()).await {
-            eprintln!("failed to connect to master; err = {err:?}");
-            return Err(err);
+        match connect_to_host(host_addr, info.clone()).await {
+            Ok(connection) => {
+                read_host_connection(
+                    connection,
+                    db.clone_sender(),
+                    Arc::new(Mutex::new(vec![])),
+                    Arc::new(Mutex::new(false)),
+                    arc_info.clone(),
+                )
+                .await
+            }
+            Err(err) => {
+                eprintln!("failed to connect to master; err = {err:?}");
+                return Err(err);
+            }
         }
     }
 
-    let info = Arc::new(RwLock::new(info));
-
     loop {
-        let (mut socket, _) = listener.accept().await?;
-        let info_clone = Arc::clone(&info);
+        let (socket, _) = listener.accept().await?;
+        let info_clone = Arc::clone(&arc_info);
         let db_clone = Arc::clone(&db);
         let sender = db_clone.clone_sender();
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
 
         tokio::spawn(async move {
-            let mut buf = [0; 1024];
-            loop {
-                let n = match socket.read(&mut buf).await {
-                    Ok(0) => return,
-                    Ok(n) => n,
-                    Err(e) => {
-                        eprintln!("failed to read from socket; err = {e:?}");
-                        return;
-                    }
-                };
-
-                let (_, writer) = socket.split();
-
-                let mut ctx = Context::new(
-                    writer,
-                    sender.clone(),
-                    queued.clone(),
-                    queue_list.clone(),
-                    info_clone.clone(),
-                );
-
-                if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
-                    eprintln!("ran into error: {err:?}");
-                    return;
-                }
-            }
+            handle_stream(socket, sender.clone(), queue_list, queued, info_clone).await
         });
         tokio::spawn(async move {
             if let Err(err) = db_clone.handle_receiver().await {
                 eprintln!("ran into error: {err:?}");
             }
         });
+    }
+}
+
+pub async fn handle_stream(
+    mut socket: TcpStream,
+    sender: mpsc::Sender<RedisCommand>,
+    queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+    queued: Arc<Mutex<bool>>,
+    info: Arc<RwLock<RedisInfo>>,
+) -> Result<(), std::io::Error> {
+    let mut buf = [0; 1024];
+    loop {
+        let n = match socket.read(&mut buf).await {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            Err(err) => {
+                eprintln!("failed to read from socket; err = {err:?}");
+                return Err(err);
+            }
+        };
+
+        let (_, writer) = socket.split();
+
+        let mut ctx = Context::new(
+            writer,
+            sender.clone(),
+            queued.clone(),
+            queue_list.clone(),
+            info.clone(),
+        );
+
+        if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
+            eprintln!("ran into error: {err:?}");
+            return Err(err);
+        }
     }
 }
 

@@ -99,7 +99,6 @@ pub async fn send_command(
 
     if sender.send(input).is_err() {
         eprintln!("failed to broadcast command {command}");
-        return Err(CommandError::SendError("broadcast".to_string()));
     }
     Ok(())
 }

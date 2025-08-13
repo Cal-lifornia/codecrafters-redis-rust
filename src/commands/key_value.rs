@@ -23,7 +23,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "set", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "set", &args_clone).await });
+    }
     let command_args = match args.len() {
         2 => SetCommandArgs {
             key: args[0].clone(),
@@ -119,7 +122,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "incr", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "incr", &args_clone).await });
+    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Incr {

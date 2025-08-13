@@ -19,7 +19,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "rpush", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "rpush", &args_clone).await });
+    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Rpush {
@@ -43,7 +46,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "lpush", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "lpush", &args_clone).await });
+    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Lpush {
@@ -116,7 +122,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "lpop", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "lpop", &args_clone).await });
+    }
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("lpop".to_string()));
     }
@@ -162,7 +171,10 @@ where
 {
     let sender = ctx.cmd_broadcaster.clone();
     let args_clone = args.to_vec();
-    tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
+    let replica = ctx.tcp_replica.lock().await;
+    if !*replica {
+        tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
+    }
     if args.len() > 2 {
         ctx.out
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes())
