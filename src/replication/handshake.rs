@@ -12,7 +12,7 @@ use crate::{
 
 pub async fn handshake(socket: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
     match socket
-        .write_all(&Resp::BulkString("PING".to_string()).to_bytes())
+        .write_all(&Resp::StringArray(vec!["PING".to_string()]).to_bytes())
         .await
     {
         Ok(_) => Ok(()),
