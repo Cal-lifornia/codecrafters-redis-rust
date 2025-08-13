@@ -6,7 +6,7 @@ use tokio::{
     sync::oneshot,
 };
 
-mod_flat!(basic key_value stream list transactions);
+mod_flat!(basic key_value stream list transactions replica);
 
 use crate::{
     db::{DatabaseError, DatabaseStreamEntry},
@@ -175,6 +175,8 @@ where
         "xadd" => xadd_cmd(ctx, args).await?,
         "xrange" => xrange_cmd(ctx, args).await?,
         "xread" => xread_cmd(ctx, args).await?,
+        "psync" => psync_cmd(ctx, args).await?,
+        "replconf" => replconf_cmd(ctx, args).await?,
 
         _ => {
             ctx.out
