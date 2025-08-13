@@ -1,10 +1,11 @@
 #[derive(Debug, Clone)]
 pub struct RedisInfo {
-    pub replication: Replication,
+    pub port: String,
+    pub replication: ReplicationInfo,
 }
 
 #[derive(Debug, Clone)]
-pub struct Replication {
+pub struct ReplicationInfo {
     pub role: String,
     pub host_id: String,
     pub connected_slaves: usize,
@@ -12,7 +13,7 @@ pub struct Replication {
     pub replication_id: String,
 }
 
-impl Replication {
+impl ReplicationInfo {
     pub fn new(role: String, host_id: String, connected_slaves: usize, offset: usize) -> Self {
         let replication_id: String = if role == "master" {
             const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\

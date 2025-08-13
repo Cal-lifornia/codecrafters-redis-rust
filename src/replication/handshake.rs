@@ -8,16 +8,36 @@ use tokio::{
 use crate::{
     replication::ReplicaError,
     resp::{self, Resp},
+    types::{RedisInfo, ReplicationInfo},
 };
 
-pub async fn handshake(socket: &mut TcpStream) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handshake(
+    socket: &mut TcpStream,
+    info: RedisInfo,
+) -> Result<(), Box<dyn std::error::Error>> {
     match socket
-        .write_all(&Resp::StringArray(vec!["PING".to_string()]).to_bytes())
+        .write_all(&Resp::str_array(&["PING"]).to_bytes())
         .await
     {
         Ok(_) => Ok(()),
         Err(err) => Err(Box::new(err)),
-    }
+    };
+
+    match socket
+        .write_all(&Resp::str_array(&["REPLCONF", "listening-port", &info.port]).to_bytes())
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Box::new(err)),
+    };
+    match socket
+        .write_all(&Resp::str_array(&["REPLCONF", "capa", "psync2"]).to_bytes())
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Box::new(err)),
+    };
+    Ok(())
 
     // let mut buf = [0; 1024];
     // let n = match socket.read(&mut buf).await {

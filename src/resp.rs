@@ -50,6 +50,14 @@ impl Resp {
     pub fn simple_error(input: impl Display) -> Self {
         Self::SimpleError(format!("ERR {input}"))
     }
+    pub fn str_array(input: &[&str]) -> Self {
+        Resp::Array(
+            input
+                .iter()
+                .map(|value| Resp::BulkString(value.to_string()))
+                .collect(),
+        )
+    }
 }
 
 // pub fn byte_vec_to_resp(inputs: Vec<&[u8]>) -> Bytes {

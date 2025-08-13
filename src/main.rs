@@ -18,5 +18,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Uncomment this block to pass the first stage
     //
-    redis::init(format!("127.0.0.1:{port_number}").as_str(), replica_of).await
+    redis::init("127.0.0.1", &port_number.to_string(), replica_of).await
 }
