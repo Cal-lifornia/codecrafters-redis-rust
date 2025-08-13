@@ -3,7 +3,7 @@ use std::{io::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{mpsc, Mutex, RwLock},
+    sync::{broadcast, mpsc, Mutex, RwLock},
 };
 
 use crate::{
@@ -45,6 +45,8 @@ pub async fn init(
         }
     };
     let arc_info = Arc::new(RwLock::new(info.clone()));
+    let tcp_replica = Arc::new(Mutex::new(false));
+    let (broadcaster, _) = broadcast::channel(8);
 
     if role == "slave" {
         match connect_to_host(host_addr, info.clone()).await {
@@ -55,6 +57,8 @@ pub async fn init(
                     Arc::new(Mutex::new(vec![])),
                     Arc::new(Mutex::new(false)),
                     arc_info.clone(),
+                    tcp_replica.clone(),
+                    broadcaster.clone(),
                 )
                 .await
             }
@@ -72,9 +76,20 @@ pub async fn init(
         let sender = db_clone.clone_sender();
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
+        let replica_clone = Arc::clone(&tcp_replica);
+        let broadcaster_clone = broadcaster.clone();
 
         tokio::spawn(async move {
-            handle_stream(socket, sender.clone(), queue_list, queued, info_clone).await
+            handle_stream(
+                socket,
+                sender.clone(),
+                queue_list,
+                queued,
+                info_clone,
+                replica_clone,
+                broadcaster_clone,
+            )
+            .await
         });
         tokio::spawn(async move {
             if let Err(err) = db_clone.handle_receiver().await {
@@ -90,6 +105,8 @@ pub async fn handle_stream(
     queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     queued: Arc<Mutex<bool>>,
     info: Arc<RwLock<RedisInfo>>,
+    tcp_replica: Arc<Mutex<bool>>,
+    cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
 ) -> Result<(), std::io::Error> {
     let mut buf = [0; 1024];
     loop {
@@ -110,6 +127,8 @@ pub async fn handle_stream(
             queued.clone(),
             queue_list.clone(),
             info.clone(),
+            tcp_replica.clone(),
+            cmd_broadcaster.clone(),
         );
 
         if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {

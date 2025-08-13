@@ -25,16 +25,17 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         queued: Arc<Mutex<bool>>,
         queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
         info: Arc<RwLock<RedisInfo>>,
+        tcp_replica: Arc<Mutex<bool>>,
+        cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
     ) -> Self {
-        let (broadcaster, _) = broadcast::channel(8);
         Self {
             out,
             db_sender,
             queued,
             queue_list,
             info,
-            tcp_replica: Arc::new(Mutex::new(false)),
-            cmd_broadcaster: broadcaster,
+            tcp_replica,
+            cmd_broadcaster,
         }
     }
 }

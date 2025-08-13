@@ -3,7 +3,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::{
     net::TcpStream,
-    sync::{mpsc, Mutex, RwLock},
+    sync::{broadcast, mpsc, Mutex, RwLock},
 };
 
 use crate::{commands::RedisCommand, mod_flat, redis::handle_stream, resp::Resp, types::RedisInfo};
@@ -29,6 +29,8 @@ pub async fn read_host_connection(
     queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     queued: Arc<Mutex<bool>>,
     info: Arc<RwLock<RedisInfo>>,
+    tcp_replica: Arc<Mutex<bool>>,
+    cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
 ) {
     tokio::spawn(async move {
         handle_stream(
@@ -37,6 +39,8 @@ pub async fn read_host_connection(
             queue_list.clone(),
             queued.clone(),
             info.clone(),
+            tcp_replica,
+            cmd_broadcaster,
         )
         .await
     });
