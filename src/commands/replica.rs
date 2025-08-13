@@ -1,3 +1,6 @@
+use std::io::Read;
+
+use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::{resp::Resp, types::Context};
@@ -24,6 +27,7 @@ where
     }
     Ok(())
 }
+
 pub async fn psync_cmd<Writer>(
     ctx: &mut Context<Writer>,
     args: &[String],
@@ -45,6 +49,12 @@ where
                     .to_bytes(),
             )
             .await?;
+        let binary_rdb = std::fs::read("./static/empty.rdb").unwrap();
+        let mut buf = BytesMut::new();
+        buf.put_u8(b'$');
+        buf.put(binary_rdb.len().to_string().as_bytes());
+        buf.put_slice(&binary_rdb);
+        ctx.out.write_all(&buf).await?;
     } else {
         ctx.out
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("psync".into())).to_bytes())
