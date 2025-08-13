@@ -3,7 +3,10 @@ use std::io::Read;
 use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use crate::{resp::Resp, types::Context};
+use crate::{
+    resp::{self, Resp},
+    types::Context,
+};
 
 use super::CommandError;
 
@@ -53,6 +56,7 @@ where
         let mut buf = BytesMut::new();
         buf.put_u8(b'$');
         buf.put(binary_rdb.len().to_string().as_bytes());
+        buf.put_slice(&[resp::CR, resp::LF]);
         buf.put_slice(&binary_rdb);
         ctx.out.write_all(&buf).await?;
     } else {
