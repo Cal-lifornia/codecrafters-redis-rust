@@ -3,7 +3,7 @@ use std::{io::Error, sync::Arc};
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpListener,
-    sync::Mutex,
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
@@ -52,7 +52,7 @@ pub async fn init(
         }
     }
 
-    let info = Arc::new(info);
+    let info = Arc::new(RwLock::new(info));
 
     loop {
         let (mut socket, _) = listener.accept().await?;

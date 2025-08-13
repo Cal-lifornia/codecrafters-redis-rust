@@ -63,7 +63,7 @@ where
     Writer: AsyncWrite + Unpin,
 {
     if !args.is_empty() {
-        let info = ctx.info();
+        let info = ctx.info.read().await;
         match args[0].to_lowercase().as_str() {
             "replication" => {
                 let replication = info.replication.clone();
