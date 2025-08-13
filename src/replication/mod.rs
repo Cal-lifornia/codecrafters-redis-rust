@@ -1,17 +1,20 @@
 use thiserror::Error;
 use tokio::net::TcpStream;
 
-use crate::mod_flat;
+use crate::{mod_flat, types::RedisInfo};
 
 mod_flat!(handshake);
 
-pub async fn connect_to_host(host_address: String) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn connect_to_host(
+    host_address: String,
+    info: RedisInfo,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut connection = match TcpStream::connect(host_address).await {
         Ok(stream) => stream,
         Err(err) => return Err(Box::new(err)),
     };
 
-    handshake(&mut connection).await?;
+    handshake(&mut connection, info).await?;
 
     Ok(())
 }

@@ -33,17 +33,19 @@ pub async fn init(
     } else {
         ("master", "".to_string())
     };
-    let info = Arc::new(RedisInfo {
+    let info = RedisInfo {
         port: port.to_string(),
         replication: ReplicationInfo::new(role.to_string(), host_addr.clone(), 0, 0),
-    });
+    };
 
     if role == "slave" {
-        if let Err(err) = connect_to_host(host_addr).await {
+        if let Err(err) = connect_to_host(host_addr, info.clone()).await {
             eprintln!("failed to connect to master; err = {err:?}");
             return Err(err);
         }
     }
+
+    let info = Arc::new(info);
 
     loop {
         let (mut socket, _) = listener.accept().await?;

@@ -19,24 +19,24 @@ pub async fn handshake(
         .write_all(&Resp::str_array(&["PING"]).to_bytes())
         .await
     {
-        Ok(_) => Ok(()),
-        Err(err) => Err(Box::new(err)),
-    };
+        Ok(_) => {}
+        Err(err) => return Err(Box::new(err)),
+    }
 
     match socket
         .write_all(&Resp::str_array(&["REPLCONF", "listening-port", &info.port]).to_bytes())
         .await
     {
-        Ok(_) => Ok(()),
-        Err(err) => Err(Box::new(err)),
-    };
+        Ok(_) => {}
+        Err(err) => return Err(Box::new(err)),
+    }
     match socket
         .write_all(&Resp::str_array(&["REPLCONF", "capa", "psync2"]).to_bytes())
         .await
     {
-        Ok(_) => Ok(()),
-        Err(err) => Err(Box::new(err)),
-    };
+        Ok(_) => {}
+        Err(err) => return Err(Box::new(err)),
+    }
     Ok(())
 
     // let mut buf = [0; 1024];
