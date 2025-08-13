@@ -36,11 +36,14 @@ where
             let info = ctx.info.read().await;
             (
                 info.replication.replication_id.clone(),
-                info.replication.offset.clone(),
+                info.replication.offset,
             )
         };
         ctx.out
-            .write_all(&Resp::str_array(&["FULLRESYNC", &repl_id, &offset.to_string()]).to_bytes())
+            .write_all(
+                &Resp::SimpleString(format!("FULLRESYNC {} {}", &repl_id, &offset.to_string()))
+                    .to_bytes(),
+            )
             .await?;
     } else {
         ctx.out
