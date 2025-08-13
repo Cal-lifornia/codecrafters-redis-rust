@@ -67,7 +67,13 @@ where
             "replication" => {
                 let replication = info.replication.clone();
                 ctx.out
-                    .write_all(&Resp::BulkString(format!("role:{}\n", replication.role)).to_bytes())
+                    .write_all(
+                        &Resp::BulkString(format!(
+                            "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}\n",
+                            replication.role, replication.replication_id, replication.offset
+                        ))
+                        .to_bytes(),
+                    )
                     .await?;
             }
             _ => {
