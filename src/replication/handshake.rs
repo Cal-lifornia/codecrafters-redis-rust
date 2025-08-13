@@ -23,7 +23,7 @@ pub async fn handshake(
         Err(err) => return Err(Box::new(err)),
     }
 
-    expect_read(socket, "PONG").await?;
+    expect_simple_string(socket, "PONG").await?;
 
     match socket
         .write_all(&Resp::str_array(&["REPLCONF", "listening-port", &info.port]).to_bytes())
@@ -33,7 +33,7 @@ pub async fn handshake(
         Err(err) => return Err(Box::new(err)),
     }
 
-    expect_read(socket, "OK").await?;
+    expect_simple_string(socket, "OK").await?;
     match socket
         .write_all(&Resp::str_array(&["REPLCONF", "capa", "psync2"]).to_bytes())
         .await
@@ -42,11 +42,27 @@ pub async fn handshake(
         Err(err) => return Err(Box::new(err)),
     }
 
-    expect_read(socket, "OK").await?;
+    expect_simple_string(socket, "OK").await?;
+
+    match socket
+        .write_all(
+            &Resp::str_array(&[
+                "PSYNC",
+                &info.replication.replication_id,
+                &info.replication.offset.to_string(),
+            ])
+            .to_bytes(),
+        )
+        .await
+    {
+        Ok(_) => {}
+        Err(err) => return Err(Box::new(err)),
+    }
+
     Ok(())
 }
 
-async fn expect_read(
+async fn expect_simple_string(
     socket: &mut TcpStream,
     expecting: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {

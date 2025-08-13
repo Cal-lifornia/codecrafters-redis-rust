@@ -33,9 +33,16 @@ pub async fn init(
     } else {
         ("master", "".to_string())
     };
-    let info = RedisInfo {
-        port: port.to_string(),
-        replication: ReplicationInfo::new(role.to_string(), host_addr.clone(), 0, 0),
+    let info = if role == "master" {
+        RedisInfo {
+            port: port.to_string(),
+            replication: ReplicationInfo::new_master(role.to_string(), host_addr.clone(), 0),
+        }
+    } else {
+        RedisInfo {
+            port: port.to_string(),
+            replication: ReplicationInfo::new_slave(role.to_string(), host_addr.clone()),
+        }
     };
 
     if role == "slave" {
