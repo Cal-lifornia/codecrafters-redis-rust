@@ -2,6 +2,7 @@ use std::time::Duration;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 
+use crate::commands::replica::send_command;
 use crate::{resp::Resp, types::Context};
 
 use crate::commands::CommandError;
@@ -20,6 +21,9 @@ pub async fn set_cmd<Writer>(ctx: &mut Context<Writer>, args: &[String]) -> Resu
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "set", &args_clone).await });
     let command_args = match args.len() {
         2 => SetCommandArgs {
             key: args[0].clone(),
@@ -113,6 +117,9 @@ pub async fn incr_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "incr", &args_clone).await });
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Incr {

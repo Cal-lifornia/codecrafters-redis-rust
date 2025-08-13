@@ -4,6 +4,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
+use crate::commands::replica::send_command;
 use crate::types::EntryId;
 use crate::{resp::Resp, types::Context};
 
@@ -18,6 +19,9 @@ pub async fn xadd_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "xadd", &args_clone).await });
     if args.len() > 3 {
         let (responder, receiver) = oneshot::channel();
         let keys: Vec<String> = args[2..]

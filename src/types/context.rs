@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::{
     io::AsyncWrite,
-    sync::{mpsc, Mutex, RwLock},
+    sync::{broadcast, mpsc, Mutex, RwLock},
 };
 
 use crate::{commands::RedisCommand, resp::Resp};
@@ -14,6 +14,8 @@ pub struct Context<Writer: AsyncWrite + Unpin> {
     pub queued: Arc<Mutex<bool>>,
     pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     pub info: Arc<RwLock<RedisInfo>>,
+    pub tcp_replica: Arc<Mutex<bool>>,
+    pub cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
 }
 
 impl<Writer: AsyncWrite + Unpin> Context<Writer> {
@@ -24,12 +26,15 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
         queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
         info: Arc<RwLock<RedisInfo>>,
     ) -> Self {
+        let (broadcaster, _) = broadcast::channel(8);
         Self {
             out,
             db_sender,
             queued,
             queue_list,
             info,
+            tcp_replica: Arc::new(Mutex::new(false)),
+            cmd_broadcaster: broadcaster,
         }
     }
 }

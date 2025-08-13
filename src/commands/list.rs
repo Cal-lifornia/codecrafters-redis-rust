@@ -3,6 +3,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
+use crate::commands::replica::send_command;
 use crate::{resp::Resp, types::Context};
 
 use crate::commands::CommandError;
@@ -16,6 +17,9 @@ pub async fn rpush_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "rpush", &args_clone).await });
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Rpush {
@@ -37,6 +41,9 @@ pub async fn lpush_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "lpush", &args_clone).await });
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Lpush {
@@ -50,6 +57,7 @@ where
         .await?;
     Ok(())
 }
+
 pub async fn lrange_cmd<Writer>(
     ctx: &mut Context<Writer>,
     args: &[String],
@@ -106,6 +114,9 @@ pub async fn lpop_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "lpop", &args_clone).await });
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("lpop".to_string()));
     }
@@ -149,6 +160,9 @@ pub async fn blpop_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
+    let sender = ctx.cmd_broadcaster.clone();
+    let args_clone = args.to_vec();
+    tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
     if args.len() > 2 {
         ctx.out
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes())

@@ -105,6 +105,8 @@ pub enum CommandError {
     DBError(#[from] DatabaseError),
     #[error("{0}")]
     EntryParseError(#[from] types::EntryIdParseErrore),
+    #[error("error receiving from channel")]
+    RevvError(#[from] tokio::sync::broadcast::error::RecvError),
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
