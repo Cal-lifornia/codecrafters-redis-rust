@@ -18,10 +18,7 @@ pub async fn init(address: &str, replica: bool) -> Result<(), Box<dyn std::error
     let db = Arc::new(RedisDatabase::default());
     let role = if replica { "slave" } else { "master" };
     let info = Arc::new(RedisInfo {
-        replication: Replication {
-            role: role.to_string(),
-            connected_slaves: 0,
-        },
+        replication: Replication::new(role.to_string(), 0, 0),
     });
 
     loop {
