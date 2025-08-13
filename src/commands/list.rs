@@ -169,12 +169,12 @@ pub async fn blpop_cmd<Writer>(
 where
     Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = ctx.tcp_replica.lock().await;
-    if !*replica {
-        tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
-    }
+    // let sender = ctx.cmd_broadcaster.clone();
+    // let args_clone = args.to_vec();
+    // let replica = ctx.tcp_replica.lock().await;
+    // if !*replica {
+    //     tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
+    // }
     if args.len() > 2 {
         ctx.out
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes())
