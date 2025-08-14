@@ -5,7 +5,7 @@ use bytes::Bytes;
 use tokio::{
     io::AsyncWriteExt,
     net::tcp::OwnedWriteHalf,
-    sync::{broadcast, mpsc, Mutex, RwLock},
+    sync::{mpsc, Mutex, RwLock},
 };
 
 use crate::{commands::RedisCommand, resp::Resp};

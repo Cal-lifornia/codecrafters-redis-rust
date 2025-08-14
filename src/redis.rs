@@ -3,9 +3,9 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 use tokio::{
-    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    sync::{broadcast, mpsc, Mutex, RwLock},
+    sync::{mpsc, Mutex, RwLock},
 };
 
 use crate::{

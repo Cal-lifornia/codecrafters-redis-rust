@@ -1,4 +1,4 @@
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::resp::{CR, LF};
 use crate::{resp::Resp, types::Context};

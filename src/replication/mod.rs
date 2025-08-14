@@ -6,7 +6,7 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::TcpStream,
-    sync::{broadcast, mpsc, Mutex, RwLock},
+    sync::{mpsc, Mutex, RwLock},
 };
 
 use crate::{

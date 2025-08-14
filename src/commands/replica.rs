@@ -1,8 +1,5 @@
 use bytes::{BufMut, BytesMut};
-use tokio::{
-    io::{AsyncWrite, AsyncWriteExt},
-    sync::broadcast,
-};
+use tokio::io::AsyncWriteExt;
 
 use crate::{
     resp::{self, Resp},

@@ -1,5 +1,5 @@
 use tokio::{
-    io::{AsyncWrite, AsyncWriteExt},
+    io::AsyncWriteExt,
     sync::oneshot,
 };
 
