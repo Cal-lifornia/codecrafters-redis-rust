@@ -13,20 +13,12 @@ pub enum RespError {
     NotEnoughBytes,
     #[error("incorrect format")]
     IncorrectFormat,
+    #[error("error parsing input {0}")]
+    IntParseError(#[from] std::num::ParseIntError),
+    #[error("error parsing input {0}")]
+    FloatParseError(#[from] std::num::ParseFloatError),
     #[error("{0}")]
-    Other(Box<dyn std::error::Error>),
-}
-
-impl From<std::num::ParseIntError> for RespError {
-    fn from(from: std::num::ParseIntError) -> Self {
-        Self::Other(Box::new(from))
-    }
-}
-
-impl From<std::io::Error> for RespError {
-    fn from(from: std::io::Error) -> Self {
-        Self::Other(Box::new(from))
-    }
+    IOError(#[from] std::io::Error),
 }
 
 pub const CR: u8 = b'\r';

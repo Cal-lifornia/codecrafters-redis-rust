@@ -20,6 +20,7 @@ pub async fn connect_to_host(
     };
 
     handshake(&mut connection, info).await?;
+
     Ok(connection)
 }
 

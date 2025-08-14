@@ -1,5 +1,6 @@
-use std::{io::Error, sync::Arc};
+use std::sync::Arc;
 
+use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -7,10 +8,10 @@ use tokio::{
 };
 
 use crate::{
-    commands::{parse_array_command, RedisCommand},
+    commands::{parse_array_command, CommandError, RedisCommand},
     db::RedisDatabase,
     replication::{connect_to_host, read_host_connection},
-    resp::{self, Resp},
+    resp::{self, Resp, RespError},
     types::{Context, RedisInfo, ReplicationInfo},
 };
 
@@ -107,7 +108,7 @@ pub async fn handle_stream(
     info: Arc<RwLock<RedisInfo>>,
     tcp_replica: Arc<Mutex<bool>>,
     cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
-) -> Result<(), std::io::Error> {
+) -> Result<(), RedisError> {
     let mut buf = [0; 1024];
     loop {
         let n = match socket.read(&mut buf).await {
@@ -115,7 +116,7 @@ pub async fn handle_stream(
             Ok(n) => n,
             Err(err) => {
                 eprintln!("failed to read from socket; err = {err:?}");
-                return Err(err);
+                return Err(err.into());
             }
         };
 
@@ -138,25 +139,32 @@ pub async fn handle_stream(
     }
 }
 
-async fn parse_input<Writer>(buf: &[u8], ctx: &mut Context<Writer>) -> Result<(), std::io::Error>
+async fn parse_input<Writer>(buf: &[u8], ctx: &mut Context<Writer>) -> Result<(), RedisError>
 where
     Writer: AsyncWrite + Unpin,
 {
-    if let (Resp::Array(contents), _) = resp::parse(buf).unwrap() {
+    if let (Resp::Array(contents), _) = resp::parse(buf)? {
         match parse_array_command(contents, ctx).await {
-            Ok(_) => Ok(()),
+            Ok(_) => return Ok(()),
             Err(err) => {
                 ctx.out
                     .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
-                    .await
+                    .await?;
+                return Ok(());
             }
         }
-    } else {
-        Err(Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "invalid input",
-        ))
     }
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+pub enum RedisError {
+    #[error("{0}")]
+    CommandError(#[from] CommandError),
+    #[error("{0}")]
+    ParseError(#[from] RespError),
+    #[error("{0}")]
+    IoError(#[from] std::io::Error),
 }
 
 // #[cfg(test)]

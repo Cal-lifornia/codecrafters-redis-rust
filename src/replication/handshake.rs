@@ -59,7 +59,15 @@ pub async fn handshake(
         Err(err) => return Err(Box::new(err)),
     }
 
-    Ok(())
+    let mut buf = [0; 1024];
+    match socket.read(&mut buf).await {
+        Ok(0) => Err(Box::new(Error::new(
+            std::io::ErrorKind::TimedOut,
+            "no return after sending message",
+        ))),
+        Ok(_) => Ok(()),
+        Err(err) => Err(Box::new(err)),
+    }
 }
 
 async fn expect_simple_string(
