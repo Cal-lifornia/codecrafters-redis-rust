@@ -66,6 +66,7 @@ where
             .await?;
     }
     let receiver = ctx.cmd_broadcaster.subscribe();
+    println!("entering downstream command");
     if let Err(err) = downstream_command(ctx, receiver).await {
         eprintln!("ran into error broadcasting commands {err}");
 
@@ -83,6 +84,7 @@ where
 {
     loop {
         let commands = command_streamer.recv().await?;
+        println!("sent {commands:#?} to stream");
         ctx.out.write_all(&Resp::Array(commands).to_bytes()).await?;
     }
 }

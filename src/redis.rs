@@ -65,7 +65,7 @@ pub async fn init(
             }
             Err(err) => {
                 eprintln!("failed to connect to master; err = {err:?}");
-                return Err(err);
+                return Err(err.into());
             }
         }
     }
@@ -134,7 +134,7 @@ pub async fn handle_stream(
 
         if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
             eprintln!("ran into error: {err:?}");
-            return Err(err);
+            continue;
         }
     }
 }
