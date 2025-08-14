@@ -9,7 +9,13 @@ use tokio::{
     sync::{broadcast, mpsc, Mutex, RwLock},
 };
 
-use crate::{commands::RedisCommand, mod_flat, redis::handle_stream, resp::Resp, types::RedisInfo};
+use crate::{
+    commands::RedisCommand,
+    mod_flat,
+    redis::handle_stream,
+    resp::Resp,
+    types::{RedisInfo, Replica},
+};
 
 mod_flat!(handshake);
 
@@ -27,8 +33,8 @@ pub async fn read_host_connection(
     queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     queued: Arc<Mutex<bool>>,
     info: Arc<RwLock<RedisInfo>>,
-    tcp_replica: Arc<Mutex<bool>>,
-    cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
+    replicas: Arc<RwLock<Vec<Replica>>>,
+    is_replica: bool,
 ) {
     let mut reader = BufReader::new(connection);
     let mut file_size = String::new();
@@ -51,8 +57,8 @@ pub async fn read_host_connection(
             queue_list.clone(),
             queued.clone(),
             info.clone(),
-            tcp_replica,
-            cmd_broadcaster,
+            replicas.clone(),
+            is_replica,
         )
         .await
     });

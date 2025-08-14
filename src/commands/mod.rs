@@ -117,19 +117,17 @@ impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
 
 pub type Responder<T> = oneshot::Sender<Result<T, DatabaseError>>;
 
-pub async fn parse_array_command<Writer>(
-    input: Vec<Resp>,
-    ctx: &mut Context<Writer>,
-) -> Result<(), CommandError>
+pub async fn parse_array_command(input: &[Resp], ctx: &mut Context) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     let mut inputs: Vec<String> = vec![];
-    for arg in input.clone() {
+    for arg in input {
         if let Resp::BulkString(val) = arg {
-            inputs.push(val);
+            inputs.push(val.to_string());
         } else {
             ctx.out
+                .write()
+                .await
                 .write_all(&Resp::SimpleString(CommandError::InvalidInput.to_string()).to_bytes())
                 .await
                 .unwrap();
@@ -147,8 +145,10 @@ where
             let queued = ctx.queued.lock().await;
             if *queued {
                 let mut queue_list = ctx.queue_list.lock().await;
-                queue_list.push(input.clone());
+                queue_list.push(input.to_vec());
                 ctx.out
+                    .write()
+                    .await
                     .write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
                     .await?;
                 return Ok(());
@@ -160,21 +160,58 @@ where
         "echo" => echo_cmd(ctx, args).await?,
         "ping" => {
             ctx.out
+                .write()
+                .await
                 .write_all(&Resp::SimpleString("PONG".to_string()).to_bytes())
                 .await?;
         }
         "multi" => multi_cmd(ctx).await?,
         "get" => get_cmd(ctx, args).await?,
-        "set" => set_cmd(ctx, args).await?,
-        "incr" => incr_cmd(ctx, args).await?,
-        "rpush" => rpush_cmd(ctx, args).await?,
-        "lpush" => lpush_cmd(ctx, args).await?,
+        "set" => {
+            set_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
+        "incr" => {
+            incr_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
+        "rpush" => {
+            rpush_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
+        "lpush" => {
+            lpush_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
         "lrange" => lrange_cmd(ctx, args).await?,
         "llen" => llen_cmd(ctx, args).await?,
-        "lpop" => lpop_cmd(ctx, args).await?,
-        "blpop" => blpop_cmd(ctx, args).await?,
+        "lpop" => {
+            lpop_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
+        "blpop" => {
+            blpop_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
         "type" => type_cmd(ctx, args).await?,
-        "xadd" => xadd_cmd(ctx, args).await?,
+        "xadd" => {
+            xadd_cmd(ctx, args).await?;
+            if ctx.is_master {
+                write_to_replicas(ctx, input).await?;
+            }
+        }
         "xrange" => xrange_cmd(ctx, args).await?,
         "xread" => xread_cmd(ctx, args).await?,
         "psync" => psync_cmd(ctx, args).await?,
@@ -182,6 +219,8 @@ where
 
         _ => {
             ctx.out
+                .write()
+                .await
                 .write_all(
                     &Resp::simple_error(CommandError::InvalidCommand(inputs[0].to_string()))
                         .to_bytes(),

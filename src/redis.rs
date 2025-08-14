@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use thiserror::Error;
 use tokio::{
     io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
@@ -12,7 +13,7 @@ use crate::{
     db::RedisDatabase,
     replication::{connect_to_host, read_host_connection},
     resp::{self, Resp, RespError},
-    types::{Context, RedisInfo, ReplicationInfo},
+    types::{Context, RedisInfo, Replica, ReplicationInfo},
 };
 
 pub async fn init(
@@ -22,7 +23,7 @@ pub async fn init(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(format!("{address}:{port}")).await?;
     let db = Arc::new(RedisDatabase::default());
-    let (role, host_addr) = if let Some(host) = replica {
+    let (is_master, role, host_addr) = if let Some(host) = replica {
         let host_option = host.split_whitespace().take(2).collect::<Vec<_>>();
         let host_name = if host_option[0] == "localhost" {
             "127.0.0.1"
@@ -30,9 +31,9 @@ pub async fn init(
             host_option[0]
         };
 
-        ("slave", format!("{}:{}", host_name, host_option[1]))
+        (false, "slave", format!("{}:{}", host_name, host_option[1]))
     } else {
-        ("master", "".to_string())
+        (true, "master", "".to_string())
     };
     let info = if role == "master" {
         RedisInfo {
@@ -46,8 +47,7 @@ pub async fn init(
         }
     };
     let arc_info = Arc::new(RwLock::new(info.clone()));
-    let tcp_replica = Arc::new(Mutex::new(false));
-    let (broadcaster, _) = broadcast::channel(8);
+    let replicas = Arc::new(RwLock::new(vec![]));
 
     if role == "slave" {
         match connect_to_host(host_addr, info.clone()).await {
@@ -58,8 +58,8 @@ pub async fn init(
                     Arc::new(Mutex::new(vec![])),
                     Arc::new(Mutex::new(false)),
                     arc_info.clone(),
-                    tcp_replica.clone(),
-                    broadcaster.clone(),
+                    replicas.clone(),
+                    is_master,
                 )
                 .await
             }
@@ -77,8 +77,7 @@ pub async fn init(
         let sender = db_clone.clone_sender();
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
-        let replica_clone = Arc::clone(&tcp_replica);
-        let broadcaster_clone = broadcaster.clone();
+        let replicas_clone = replicas.clone();
 
         tokio::spawn(async move {
             handle_stream(
@@ -87,8 +86,8 @@ pub async fn init(
                 queue_list,
                 queued,
                 info_clone,
-                replica_clone,
-                broadcaster_clone,
+                replicas_clone.clone(),
+                is_master,
             )
             .await
         });
@@ -101,17 +100,19 @@ pub async fn init(
 }
 
 pub async fn handle_stream(
-    mut socket: TcpStream,
+    stream: TcpStream,
     sender: mpsc::Sender<RedisCommand>,
     queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     queued: Arc<Mutex<bool>>,
     info: Arc<RwLock<RedisInfo>>,
-    tcp_replica: Arc<Mutex<bool>>,
-    cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
+    replicas: Arc<RwLock<Vec<Replica>>>,
+    master: bool,
 ) -> Result<(), RedisError> {
     let mut buf = [0; 1024];
+    let (mut reader, writer) = stream.into_split();
+    let writer = Arc::new(RwLock::new(writer));
     loop {
-        let n = match socket.read(&mut buf).await {
+        let n = match reader.read(&mut buf).await {
             Ok(0) => return Ok(()),
             Ok(n) => n,
             Err(err) => {
@@ -120,16 +121,14 @@ pub async fn handle_stream(
             }
         };
 
-        let (_, writer) = socket.split();
-
         let mut ctx = Context::new(
-            writer,
+            writer.clone(),
             sender.clone(),
             queued.clone(),
             queue_list.clone(),
             info.clone(),
-            tcp_replica.clone(),
-            cmd_broadcaster.clone(),
+            master,
+            replicas.clone(),
         );
 
         if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
@@ -139,15 +138,14 @@ pub async fn handle_stream(
     }
 }
 
-async fn parse_input<Writer>(buf: &[u8], ctx: &mut Context<Writer>) -> Result<(), RedisError>
-where
-    Writer: AsyncWrite + Unpin,
-{
+async fn parse_input(buf: &[u8], ctx: &mut Context) -> Result<(), RedisError> {
     if let (Resp::Array(contents), _) = resp::parse(buf)? {
-        match parse_array_command(contents, ctx).await {
+        match parse_array_command(&contents, ctx).await {
             Ok(_) => return Ok(()),
             Err(err) => {
                 ctx.out
+                    .write()
+                    .await
                     .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
                     .await?;
                 return Ok(());

@@ -3,26 +3,15 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
-use crate::commands::replica::send_command;
 use crate::{resp::Resp, types::Context};
 
 use crate::commands::CommandError;
 
 use super::RedisCommand;
 
-pub async fn rpush_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn rpush_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "rpush", &args_clone).await });
-    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Rpush {
@@ -32,24 +21,16 @@ where
         })
         .await?;
     ctx.out
+        .write()
+        .await
         .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
         .await?;
     Ok(())
 }
 
-pub async fn lpush_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn lpush_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "lpush", &args_clone).await });
-    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Lpush {
@@ -59,17 +40,15 @@ where
         })
         .await?;
     ctx.out
+        .write()
+        .await
         .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
         .await?;
     Ok(())
 }
 
-pub async fn lrange_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn lrange_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if args.len() > 3 {
         return Err(CommandError::WrongNumArgs("lpush".to_string()));
@@ -85,16 +64,14 @@ where
         })
         .await?;
     ctx.out
+        .write()
+        .await
         .write_all(&Resp::StringArray(receiver.await.unwrap()?).to_bytes())
         .await?;
     Ok(())
 }
-pub async fn llen_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn llen_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("llen".to_string()));
@@ -109,23 +86,15 @@ where
         .await?;
 
     ctx.out
+        .write()
+        .await
         .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
         .await?;
     Ok(())
 }
-pub async fn lpop_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn lpop_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "lpop", &args_clone).await });
-    }
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("lpop".to_string()));
     }
@@ -149,34 +118,36 @@ where
         Some(list) => {
             if list.len() == 1 {
                 ctx.out
+                    .write()
+                    .await
                     .write_all(&Resp::BulkString(list[0].clone()).to_bytes())
                     .await?
             } else {
                 ctx.out
+                    .write()
+                    .await
                     .write_all(&Resp::StringArray(list).to_bytes())
                     .await?
             }
         }
-        None => ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?,
+        None => {
+            ctx.out
+                .write()
+                .await
+                .write_all(&Resp::NullBulkString.to_bytes())
+                .await?
+        }
     };
     Ok(())
 }
 
-pub async fn blpop_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn blpop_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "blpop", &args_clone).await });
-    }
     if args.len() > 2 {
         ctx.out
+            .write()
+            .await
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes())
             .await?;
     } else {
@@ -200,7 +171,11 @@ where
             match timeout {
                 Ok(result) => result.unwrap(),
                 Err(_) => {
-                    ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                    ctx.out
+                        .write()
+                        .await
+                        .write_all(&Resp::NullBulkString.to_bytes())
+                        .await?;
                     return Ok(());
                 }
             }
@@ -210,10 +185,14 @@ where
 
         if let Some(results) = response? {
             ctx.out
+                .write()
+                .await
                 .write_all(&Resp::StringArray(results).to_bytes())
                 .await?;
         } else {
             ctx.out
+                .write()
+                .await
                 .write_all(&Resp::SimpleError("failed to get results".to_string()).to_bytes())
                 .await?;
         }

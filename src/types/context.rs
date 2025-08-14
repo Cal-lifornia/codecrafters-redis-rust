@@ -1,32 +1,39 @@
 use std::sync::Arc;
 
+use anyhow::Result;
+use bytes::Bytes;
 use tokio::{
-    io::AsyncWrite,
+    io::AsyncWriteExt,
+    net::tcp::OwnedWriteHalf,
     sync::{broadcast, mpsc, Mutex, RwLock},
 };
 
 use crate::{commands::RedisCommand, resp::Resp};
 
 use super::RedisInfo;
-pub struct Context<Writer: AsyncWrite + Unpin> {
-    pub out: Writer,
+pub struct Context {
+    pub out: Arc<RwLock<OwnedWriteHalf>>,
     pub db_sender: mpsc::Sender<RedisCommand>,
     pub queued: Arc<Mutex<bool>>,
     pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
     pub info: Arc<RwLock<RedisInfo>>,
-    pub tcp_replica: Arc<Mutex<bool>>,
-    pub cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
+    pub replicas: Arc<RwLock<Vec<Replica>>>,
+    pub is_master: bool,
 }
 
-impl<Writer: AsyncWrite + Unpin> Context<Writer> {
+pub struct Replica {
+    pub replica: Arc<RwLock<OwnedWriteHalf>>,
+}
+
+impl Context {
     pub fn new(
-        out: Writer,
+        out: Arc<RwLock<OwnedWriteHalf>>,
         db_sender: mpsc::Sender<RedisCommand>,
         queued: Arc<Mutex<bool>>,
         queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
         info: Arc<RwLock<RedisInfo>>,
-        tcp_replica: Arc<Mutex<bool>>,
-        cmd_broadcaster: broadcast::Sender<Vec<Resp>>,
+        is_master: bool,
+        replicas: Arc<RwLock<Vec<Replica>>>,
     ) -> Self {
         Self {
             out,
@@ -34,8 +41,13 @@ impl<Writer: AsyncWrite + Unpin> Context<Writer> {
             queued,
             queue_list,
             info,
-            tcp_replica,
-            cmd_broadcaster,
+            replicas,
+            is_master,
         }
+    }
+
+    pub async fn write_to_stream(&self, output: Bytes) -> Result<()> {
+        self.out.write().await.write_all(&output).await?;
+        Ok(())
     }
 }

@@ -6,24 +6,24 @@ use tokio::{
 
 use crate::{
     resp::{self, Resp},
-    types::Context,
+    types::{Context, Replica},
 };
 
 use super::CommandError;
 
-pub async fn replconf_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn replconf_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if args.len() == 2 {
         ctx.out
+            .write()
+            .await
             .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
             .await?;
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::simple_error(CommandError::WrongNumArgs("replconf".into())).to_bytes(),
             )
@@ -32,12 +32,8 @@ where
     Ok(())
 }
 
-pub async fn psync_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn psync_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if args.len() > 1 {
         let (repl_id, offset) = {
@@ -48,6 +44,8 @@ where
             )
         };
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::SimpleString(format!("FULLRESYNC {} {}", &repl_id, &offset.to_string()))
                     .to_bytes(),
@@ -59,48 +57,28 @@ where
         buf.put(binary_rdb.len().to_string().as_bytes());
         buf.put_slice(&[resp::CR, resp::LF]);
         buf.put_slice(&binary_rdb);
-        ctx.out.write_all(&buf).await?;
+        ctx.out.write().await.write_all(&buf).await?;
+
+        ctx.replicas.write().await.push(Replica {
+            replica: ctx.out.clone(),
+        });
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("psync".into())).to_bytes())
             .await?;
-    }
-    let receiver = ctx.cmd_broadcaster.subscribe();
-    println!("entering downstream command");
-    if let Err(err) = downstream_command(ctx, receiver).await {
-        eprintln!("ran into error broadcasting commands {err}");
-
-        return Err(err);
     }
     Ok(())
 }
 
-pub async fn downstream_command<Writer>(
-    ctx: &mut Context<Writer>,
-    mut command_streamer: broadcast::Receiver<Vec<Resp>>,
-) -> Result<(), CommandError>
-where
-    Writer: AsyncWrite + Unpin,
-{
-    loop {
-        let commands = command_streamer.recv().await?;
-        println!("sent {commands:#?} to stream");
-        ctx.out.write_all(&Resp::Array(commands).to_bytes()).await?;
-    }
-}
-
-pub async fn send_command(
-    sender: broadcast::Sender<Vec<Resp>>,
-    command: &str,
-    args: &[String],
-) -> Result<(), CommandError> {
-    let mut input: Vec<Resp> = vec![Resp::BulkString(command.to_string())];
-    for arg in args {
-        input.push(Resp::BulkString(arg.to_string()));
-    }
-
-    if sender.send(input).is_err() {
-        eprintln!("failed to broadcast command {command}");
+pub async fn write_to_replicas(ctx: &Context, input: &[Resp]) -> Result<(), CommandError> {
+    for Replica { replica } in ctx.replicas.write().await.iter_mut() {
+        replica
+            .write()
+            .await
+            .write_all(&Resp::Array(input.to_vec()).to_bytes())
+            .await?;
     }
     Ok(())
 }

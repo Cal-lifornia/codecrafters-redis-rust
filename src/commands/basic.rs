@@ -7,19 +7,19 @@ use crate::{resp::Resp, types::Context};
 
 use super::{CommandError, RedisCommand};
 
-pub async fn echo_cmd<Writer>(
-    ctx: &mut Context<Writer>,
+pub async fn echo_cmd(
+    ctx: &mut Context,
     args: &[String],
 ) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
+    
 {
     if args.len() == 1 {
-        ctx.out
+        ctx.out.write().await
             .write_all(&Resp::BulkString(args[0].to_string()).to_bytes())
             .await?;
     } else {
-        ctx.out
+        ctx.out.write().await
             .write_all(
                 &Resp::SimpleError(CommandError::WrongNumArgs("echo".to_string()).to_string())
                     .to_bytes(),
@@ -29,12 +29,12 @@ where
     Ok(())
 }
 
-pub async fn type_cmd<Writer>(
-    ctx: &mut Context<Writer>,
+pub async fn type_cmd(
+    ctx: &mut Context,
     args: &[String],
 ) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
+    
 {
     if !args.len() > 1 {
         let (responder, receiver) = oneshot::channel();
@@ -44,30 +44,30 @@ where
                 responder,
             })
             .await?;
-        ctx.out
+        ctx.out.write().await
             .write_all(&Resp::SimpleString(receiver.await.unwrap()?).to_bytes())
             .await?;
     } else {
-        ctx.out
+        ctx.out.write().await
             .write_all(&Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes())
             .await?;
     }
     Ok(())
 }
 
-pub async fn info_cmd<Writer>(
-    ctx: &mut Context<Writer>,
+pub async fn info_cmd(
+    ctx: &mut Context,
     args: &[String],
 ) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
+    
 {
     if !args.is_empty() {
         let info = ctx.info.read().await;
         match args[0].to_lowercase().as_str() {
             "replication" => {
                 let replication = info.replication.clone();
-                ctx.out
+                ctx.out.write().await
                     .write_all(
                         &Resp::BulkString(format!(
                             "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}\n",
@@ -78,7 +78,7 @@ where
                     .await?;
             }
             _ => {
-                ctx.out
+                ctx.out.write().await
                     .write_all(&Resp::simple_error(CommandError::InvalidInput).to_bytes())
                     .await?;
             }

@@ -2,7 +2,6 @@ use std::time::Duration;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 
-use crate::commands::replica::send_command;
 use crate::{resp::Resp, types::Context};
 
 use crate::commands::CommandError;
@@ -17,16 +16,9 @@ pub struct SetCommandArgs {
     pub keep_ttl: bool,
 }
 
-pub async fn set_cmd<Writer>(ctx: &mut Context<Writer>, args: &[String]) -> Result<(), CommandError>
+pub async fn set_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "set", &args_clone).await });
-    }
     let command_args = match args.len() {
         2 => SetCommandArgs {
             key: args[0].clone(),
@@ -39,7 +31,11 @@ where
 
             let keep_ttl = expiry_opt.to_lowercase().as_str() == "keepttl";
             if args.len() != 4 {
-                return Err(CommandError::InvalidInput);
+                if ctx.is_master {
+                    return Err(CommandError::InvalidInput);
+                } else {
+                    return Ok(());
+                }
             }
             let expiry_time = args[3].clone();
             let expiry = match expiry_opt.to_lowercase().as_str() {
@@ -47,7 +43,21 @@ where
                 "px" => Duration::from_millis(expiry_time.parse::<u64>()?),
                 "exat" => Duration::from_secs(expiry_time.parse::<u64>()?),
                 "pxat" => Duration::from_millis(expiry_time.parse::<u64>()?),
-                _ => return Err(CommandError::InvalidCommand(expiry_opt.to_string())),
+                _ => {
+                    if ctx.is_master {
+                        ctx.out
+                            .write()
+                            .await
+                            .write_all(
+                                &Resp::simple_error(CommandError::InvalidCommand(
+                                    expiry_opt.to_string(),
+                                ))
+                                .to_bytes(),
+                            )
+                            .await?;
+                    }
+                    return Ok(());
+                }
             };
 
             SetCommandArgs {
@@ -58,11 +68,16 @@ where
             }
         }
         _ => {
-            ctx.out
-                .write_all(
-                    &Resp::simple_error(CommandError::WrongNumArgs("get".to_string())).to_bytes(),
-                )
-                .await?;
+            if ctx.is_master {
+                ctx.out
+                    .write()
+                    .await
+                    .write_all(
+                        &Resp::simple_error(CommandError::WrongNumArgs("get".to_string()))
+                            .to_bytes(),
+                    )
+                    .await?;
+            }
             return Ok(());
         }
     };
@@ -75,15 +90,18 @@ where
         })
         .await?;
     receiver.await.unwrap()?;
-    ctx.out
-        .write_all(&Resp::BulkString("OK".to_string()).to_bytes())
-        .await?;
+    if ctx.is_master {
+        ctx.out
+            .write()
+            .await
+            .write_all(&Resp::BulkString("OK".to_string()).to_bytes())
+            .await?;
+    }
 
     Ok(())
 }
-pub async fn get_cmd<Writer>(ctx: &mut Context<Writer>, args: &[String]) -> Result<(), CommandError>
+pub async fn get_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if !args.len() > 1 {
         let (responder, receiver) = oneshot::channel();
@@ -96,15 +114,23 @@ where
         match receiver.await.unwrap()? {
             Some(val) => {
                 ctx.out
+                    .write()
+                    .await
                     .write_all(&Resp::SimpleString(val).to_bytes())
                     .await?;
             }
             None => {
-                ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                ctx.out
+                    .write()
+                    .await
+                    .write_all(&Resp::NullBulkString.to_bytes())
+                    .await?;
             }
         };
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::simple_error(CommandError::WrongNumArgs("get".to_string())).to_bytes(),
             )
@@ -113,19 +139,9 @@ where
     Ok(())
 }
 
-pub async fn incr_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn incr_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "incr", &args_clone).await });
-    }
     let (responder, receiver) = oneshot::channel();
     ctx.db_sender
         .send(RedisCommand::Incr {
@@ -134,6 +150,8 @@ where
         })
         .await?;
     ctx.out
+        .write()
+        .await
         .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
         .await?;
     Ok(())

@@ -4,7 +4,6 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
-use crate::commands::replica::send_command;
 use crate::types::EntryId;
 use crate::{resp::Resp, types::Context};
 
@@ -12,19 +11,9 @@ use crate::commands::CommandError;
 
 use super::RedisCommand;
 
-pub async fn xadd_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn xadd_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
-    let sender = ctx.cmd_broadcaster.clone();
-    let args_clone = args.to_vec();
-    let replica = *ctx.tcp_replica.lock().await;
-    if !replica {
-        tokio::spawn(async move { send_command(sender, "xadd", &args_clone).await });
-    }
     if args.len() > 3 {
         let (responder, receiver) = oneshot::channel();
         let keys: Vec<String> = args[2..]
@@ -45,6 +34,8 @@ where
 
         let (id, wildcard) = if args[1] == "0-0" {
             ctx.out
+                .write()
+                .await
                 .write_all(
                     &Resp::simple_error("The ID specified in XADD must be greater than 0-0")
                         .to_bytes(),
@@ -84,9 +75,11 @@ where
             )
             .to_bytes(),
         };
-        ctx.out.write_all(&results).await?;
+        ctx.out.write().await.write_all(&results).await?;
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::simple_error(CommandError::WrongNumArgs("xadd".to_string())).to_bytes(),
             )
@@ -95,12 +88,8 @@ where
     Ok(())
 }
 
-pub async fn xrange_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn xrange_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if !args.len() > 3 {
         let (responder, receiver) = oneshot::channel();
@@ -124,14 +113,24 @@ where
             .await?;
         let results = receiver.await.unwrap()?;
         if results.is_empty() {
-            ctx.out.write_all(&Resp::Array(vec![]).to_bytes()).await?;
+            ctx.out
+                .write()
+                .await
+                .write_all(&Resp::Array(vec![]).to_bytes())
+                .await?;
             return Ok(());
         }
 
         let output: Vec<Resp> = results.iter().map(|vals| vals.clone().into()).collect();
-        ctx.out.write_all(&Resp::Array(output).to_bytes()).await?;
+        ctx.out
+            .write()
+            .await
+            .write_all(&Resp::Array(output).to_bytes())
+            .await?;
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::simple_error(CommandError::WrongNumArgs("xrange".to_string())).to_bytes(),
             )
@@ -140,12 +139,8 @@ where
     Ok(())
 }
 
-pub async fn xread_cmd<Writer>(
-    ctx: &mut Context<Writer>,
-    args: &[String],
-) -> Result<(), CommandError>
+pub async fn xread_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
 where
-    Writer: AsyncWrite + Unpin,
 {
     if args.len() > 2 {
         let (responder, receiver) = oneshot::channel();
@@ -189,7 +184,11 @@ where
             match timeout(Duration::from_millis(time as u64), receiver).await {
                 Ok(out) => out.unwrap()?,
                 Err(_) => {
-                    ctx.out.write_all(&Resp::NullBulkString.to_bytes()).await?;
+                    ctx.out
+                        .write()
+                        .await
+                        .write_all(&Resp::NullBulkString.to_bytes())
+                        .await?;
                     return Ok(());
                 }
             }
@@ -206,9 +205,15 @@ where
                 ])
             })
             .collect();
-        ctx.out.write_all(&Resp::Array(output).to_bytes()).await?;
+        ctx.out
+            .write()
+            .await
+            .write_all(&Resp::Array(output).to_bytes())
+            .await?;
     } else {
         ctx.out
+            .write()
+            .await
             .write_all(
                 &Resp::simple_error(CommandError::WrongNumArgs("xread".to_string())).to_bytes(),
             )
