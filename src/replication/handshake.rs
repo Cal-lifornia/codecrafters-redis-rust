@@ -37,6 +37,7 @@ pub async fn handshake(socket: &mut TcpStream, info: RedisInfo) -> Result<()> {
             .to_bytes(),
         )
         .await?;
+
     Ok(())
 }
 

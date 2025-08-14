@@ -54,7 +54,8 @@ where
                                 ))
                                 .to_bytes(),
                             )
-                            .await?;
+                            .await
+                            .unwrap();
                     }
                     return Ok(());
                 }
@@ -76,7 +77,8 @@ where
                         &Resp::simple_error(CommandError::WrongNumArgs("get".to_string()))
                             .to_bytes(),
                     )
-                    .await?;
+                    .await
+                    .unwrap();
             }
             return Ok(());
         }

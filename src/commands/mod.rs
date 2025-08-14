@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 
 use thiserror::Error;
-use tokio::{
-    io::AsyncWriteExt,
-    sync::oneshot,
-};
+use tokio::{io::AsyncWriteExt, sync::oneshot};
 
 mod_flat!(basic key_value stream list transactions replica);
 
@@ -168,10 +165,10 @@ where
         "multi" => multi_cmd(ctx).await?,
         "get" => get_cmd(ctx, args).await?,
         "set" => {
-            set_cmd(ctx, args).await?;
             if ctx.is_master {
                 write_to_replicas(ctx, input).await?;
             }
+            set_cmd(ctx, args).await?;
         }
         "incr" => {
             incr_cmd(ctx, args).await?;

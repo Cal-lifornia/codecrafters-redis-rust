@@ -37,8 +37,14 @@ pub async fn read_host_connection(
     is_replica: bool,
 ) {
     let mut reader = BufReader::new(connection);
+
+    let mut full_resync = String::new();
+    let _ = reader.read_line(&mut full_resync).await;
+    drop(full_resync);
+
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;
+    println!("file_size: {file_size}");
     let size = file_size
         .trim_start_matches("$")
         .trim_end()
@@ -50,6 +56,7 @@ pub async fn read_host_connection(
     let _ = reader.read_exact(&mut buf).await;
     println!("slave: RDB: {buf:?}");
     let stream = reader.into_inner();
+
     tokio::spawn(async move {
         handle_stream(
             stream,

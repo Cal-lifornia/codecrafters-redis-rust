@@ -70,6 +70,7 @@ where
 }
 
 pub async fn write_to_replicas(ctx: &Context, input: &[Resp]) -> Result<(), CommandError> {
+    println!("wrote command {:#?}", input[1].clone());
     for Replica { replica } in ctx.replicas.write().await.iter_mut() {
         replica
             .write()
