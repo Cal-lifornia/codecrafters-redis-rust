@@ -26,6 +26,10 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
                 info.replication.offset,
             )
         };
+        println!("cloning to replica");
+        ctx.replicas.write().await.push(Replica {
+            replica: ctx.out.clone(),
+        });
         let output = format!("FULLRESYNC {} {}", &repl_id, &offset.to_string());
         ctx.out
             .write()
@@ -41,9 +45,6 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
         buf.put_slice(&binary_rdb);
         ctx.out.write().await.write_all(&buf).await.unwrap();
 
-        ctx.replicas.write().await.push(Replica {
-            replica: ctx.out.clone(),
-        });
         Ok(())
     } else {
         Err(CommandError::WrongNumArgs("psync".into()))

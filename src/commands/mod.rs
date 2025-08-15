@@ -179,6 +179,7 @@ impl RedisCommand {
             _ => unreachable!(),
         };
         if ctx.is_master && self.clone().is_write_command() {
+            println!("about to run command");
             for Replica { replica } in ctx.replicas.write().await.iter_mut() {
                 println!("writing command {self:#?}");
                 replica

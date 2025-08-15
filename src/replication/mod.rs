@@ -6,15 +6,14 @@ use thiserror::Error;
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::TcpStream,
-    sync::{mpsc, Mutex, RwLock},
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
-    commands::{CommandQueueList, RedisCommand},
+    commands::CommandQueueList,
     db::RedisDatabase,
     mod_flat,
     redis::handle_stream,
-    resp::Resp,
     types::{RedisInfo, Replica},
 };
 

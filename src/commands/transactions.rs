@@ -1,4 +1,3 @@
-use std::io::stdout;
 
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;

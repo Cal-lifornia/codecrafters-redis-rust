@@ -1,6 +1,4 @@
-use std::sync::Arc;
 
-use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct RedisInfo {

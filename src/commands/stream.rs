@@ -2,7 +2,6 @@ use bytes::{Buf, Bytes};
 use std::collections::HashMap;
 use std::io::Read;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::io::AsyncWriteExt;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
@@ -11,7 +10,6 @@ use crate::{resp::Resp, types::Context};
 
 use crate::commands::{CommandError, CommandResult};
 
-use super::RedisCommand;
 
 pub async fn xadd_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() > 3 {
