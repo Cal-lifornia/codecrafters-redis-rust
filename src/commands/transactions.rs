@@ -1,3 +1,5 @@
+use std::io::stdout;
+
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 
@@ -5,7 +7,7 @@ use crate::{resp::Resp, types::Context};
 
 use crate::commands::{CommandError, CommandResult};
 
-pub async fn exec_cmd(ctx: &Context) -> Result<(), CommandError>
+pub async fn exec_cmd(ctx: &Context) -> CommandResult
 where
 {
     {
@@ -15,8 +17,8 @@ where
         }
     }
 
-    handle_transactions(ctx).await?;
-    Ok(())
+    let results = handle_transactions(ctx).await?;
+    Ok(results)
 }
 pub async fn discard_cmd(ctx: &Context) -> CommandResult {
     {
@@ -39,7 +41,7 @@ pub async fn multi_cmd(ctx: &Context) -> CommandResult {
     Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
 }
 
-pub async fn handle_transactions(ctx: &Context) -> Result<(), CommandError> {
+pub async fn handle_transactions(ctx: &Context) -> CommandResult {
     {
         let mut queued = ctx.queued.lock().await;
         *queued = false;
@@ -56,14 +58,18 @@ pub async fn handle_transactions(ctx: &Context) -> Result<(), CommandError> {
             .await?;
         return Err(CommandError::Custom("EXEC without MULTI".to_string()));
     }
-
+    let mut output = vec![];
     for input in queue_list {
-        let result = Box::pin(input.run_command(ctx));
-        result.await?
+        let result = Box::pin(input.run_command_single(ctx));
+        let value = match result.await {
+            Ok(out) => out,
+            Err(err) => Resp::SimpleError(Bytes::from(format!("ERR {err}"))),
+        };
+        output.push(value);
     }
     {
         let mut locked_queue_list = ctx.queue_list.lock().await;
         locked_queue_list.clear();
     }
-    Ok(())
+    Ok(Resp::Array(output))
 }

@@ -70,8 +70,8 @@ impl RedisDatabase {
         value.clone().reader().read_to_string(&mut buf).unwrap();
 
         match buf.parse::<i32>() {
-            Ok(value) => {
-                db.insert(key.clone(), DatabaseEntry::Integer(value));
+            Ok(d_int) => {
+                db.insert(key.clone(), DatabaseEntry::Integer(d_int));
             }
             Err(_) => {
                 if keep_ttl {
@@ -294,6 +294,7 @@ impl RedisDatabase {
             );
             Some(id.to_string())
         };
+        drop(db);
         {
             let mut blockers = self.stream_blocklist.lock().await;
             let tasks = if let Some(waiters) = blockers.remove(key) {

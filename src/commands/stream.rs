@@ -113,18 +113,23 @@ where
             (ids, keys.to_vec())
         };
 
-        let (sender, receiver) = oneshot::channel();
-        {
-            let mut blocklist = ctx.db.stream_blocklist.lock().await;
-            if let Some(waiters) = blocklist.get_mut(&args[0]) {
-                waiters.push(sender);
+        let results = if block {
+            let (sender, receiver) = oneshot::channel();
+            {
+                let mut blocklist = ctx.db.stream_blocklist.lock().await;
+                if let Some(waiters) = blocklist.get_mut(&args[0]) {
+                    waiters.push(sender);
+                } else {
+                    let _ = blocklist.insert(args[3].clone(), vec![sender]);
+                }
             }
-        }
-
-        let results = if block && time != 0 {
-            match timeout(Duration::from_millis(time as u64), receiver).await {
-                Ok(out) => out.unwrap(),
-                Err(_) => return Ok(Resp::NullBulkString),
+            if time > 0 {
+                match timeout(Duration::from_millis(time as u64), receiver).await {
+                    Ok(out) => out.unwrap(),
+                    Err(_) => return Ok(Resp::NullBulkString),
+                }
+            } else {
+                receiver.await.unwrap()
             }
         } else {
             ctx.db.read_stream(&keys, &ids).await

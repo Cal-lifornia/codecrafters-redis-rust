@@ -135,7 +135,7 @@ pub async fn handle_stream(
 async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
     if let (Resp::Array(contents), _) = resp::parse(buf)? {
         let cmd = RedisCommand::try_from(contents)?;
-        match cmd.run_command(ctx).await {
+        match cmd.run_command_full(ctx).await {
             Ok(_) => return Ok(()),
             Err(err) => {
                 eprintln!("ERR {err}");

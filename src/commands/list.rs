@@ -1,16 +1,12 @@
 use bytes::{Buf, Bytes};
 use std::io::Read;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 use crate::{resp::Resp, types::Context};
 
 use crate::commands::{CommandError, CommandResult};
-
-use super::RedisCommand;
 
 pub async fn rpush_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     let results = ctx.db.push_list(&args[0], &args[1..]).await;
@@ -93,6 +89,8 @@ pub async fn blpop_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
             let mut blocklist = ctx.db.list_blocklist.lock().await;
             if let Some(waiters) = blocklist.get_mut(&args[0]) {
                 waiters.push(sender);
+            } else {
+                let _ = blocklist.insert(args[0].clone(), vec![sender]);
             }
         }
 

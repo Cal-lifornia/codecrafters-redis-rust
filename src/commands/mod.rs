@@ -87,11 +87,28 @@ impl RedisCommand {
         }
     }
 
-    pub async fn run_command(self, ctx: &Context) -> Result<(), CommandError> {
+    pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
         use RedisCommand::*;
         match self {
             Exec => {
-                exec_cmd(ctx).await?;
+                match exec_cmd(ctx).await {
+                    Ok(results) => {
+                        ctx.out
+                            .write()
+                            .await
+                            .write_all(&results.to_bytes())
+                            .await
+                            .unwrap();
+                    }
+                    Err(err) => {
+                        ctx.out
+                            .write()
+                            .await
+                            .write_all(&Resp::simple_error(format!("ERR {err}")).to_bytes())
+                            .await
+                            .unwrap();
+                    }
+                }
                 return Ok(());
             }
             Discard => match discard_cmd(ctx).await {
@@ -99,7 +116,15 @@ impl RedisCommand {
                     ctx.out.write().await.write_all(&output.to_bytes()).await?;
                     return Ok(());
                 }
-                Err(err) => return Err(err),
+                Err(err) => {
+                    ctx.out
+                        .write()
+                        .await
+                        .write_all(&Resp::simple_error(format!("ERR {err}")).to_bytes())
+                        .await
+                        .unwrap();
+                    return Ok(());
+                }
             },
             Info(ref items) => {
                 let output = info_cmd(ctx, items).await?;
@@ -135,7 +160,7 @@ impl RedisCommand {
         }
 
         let result = match self {
-            Ping => Ok(Resp::SimpleString(Bytes::from_static(b"OK"))),
+            Ping => Ok(Resp::SimpleString(Bytes::from_static(b"PONG"))),
             Echo(ref items) => echo_cmd(items).await,
             Get(ref items) => get_cmd(ctx, items).await,
             Set(ref items) => set_cmd(ctx, items).await,
@@ -155,6 +180,7 @@ impl RedisCommand {
         };
         if ctx.is_master && self.clone().is_write_command() {
             for Replica { replica } in ctx.replicas.write().await.iter_mut() {
+                println!("writing command {self:#?}");
                 replica
                     .write()
                     .await
@@ -174,17 +200,40 @@ impl RedisCommand {
                 }
             }
             Err(err) => {
-                if self.is_write_command() && ctx.is_master {
+                if ctx.is_master {
                     ctx.out
                         .write()
                         .await
-                        .write_all(&Resp::simple_error(err.to_string()).to_bytes())
+                        .write_all(&Resp::simple_error(format!("ERR {err}")).to_bytes())
                         .await
                         .unwrap();
                 }
             }
         };
         Ok(())
+    }
+
+    pub async fn run_command_single(self, ctx: &Context) -> Result<Resp, CommandError> {
+        use RedisCommand::*;
+        match self {
+            Ping => Ok(Resp::SimpleString(Bytes::from_static(b"PONG"))),
+            Echo(ref items) => echo_cmd(items).await,
+            Get(ref items) => get_cmd(ctx, items).await,
+            Set(ref items) => set_cmd(ctx, items).await,
+            Incr(ref items) => incr_cmd(ctx, items).await,
+            Rpush(ref items) => rpush_cmd(ctx, items).await,
+            Lpush(ref items) => lpush_cmd(ctx, items).await,
+            Lrange(ref items) => lrange_cmd(ctx, items).await,
+            LLen(ref items) => llen_cmd(ctx, items).await,
+            Lpop(ref items) => lpop_cmd(ctx, items).await,
+            Blpop(ref items) => blpop_cmd(ctx, items).await,
+            Type(ref items) => type_cmd(ctx, items).await,
+            Xadd(ref items) => xadd_cmd(ctx, items).await,
+            Xrange(ref items) => xrange_cmd(ctx, items).await,
+            Xread(ref items) => xread_cmd(ctx, items).await,
+            Multi => multi_cmd(ctx).await,
+            _ => unreachable!(),
+        }
     }
 }
 
@@ -203,6 +252,7 @@ impl TryFrom<Vec<Bytes>> for RedisCommand {
             b"rpush" => Ok(Rpush(value[1..].to_vec())),
             b"lpush" => Ok(Lpush(value[1..].to_vec())),
             b"llen" => Ok(LLen(value[1..].to_vec())),
+            b"lrange" => Ok(Lrange(value[1..].to_vec())),
             b"lpop" => Ok(Lpop(value[1..].to_vec())),
             b"blpop" => Ok(Blpop(value[1..].to_vec())),
             b"type" => Ok(Type(value[1..].to_vec())),

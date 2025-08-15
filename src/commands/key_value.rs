@@ -26,6 +26,7 @@ where
             if args.len() != 4 {
                 return Err(CommandError::WrongNumArgs("set".into()));
             }
+            args[3].clone().reader().read_to_string(&mut buf).unwrap();
             let expiry = match expiry_opt.to_ascii_lowercase().as_slice() {
                 b"ex" => Duration::from_secs(buf.parse::<u64>()?),
                 b"px" => Duration::from_millis(buf.parse::<u64>()?),
