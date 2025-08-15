@@ -18,6 +18,9 @@ pub async fn replconf_cmd(args: &[Bytes]) -> CommandResult {
 }
 
 pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError> {
+    ctx.replicas.write().await.push(Replica {
+        replica: ctx.out.clone(),
+    });
     if args.len() > 1 {
         let (repl_id, offset) = {
             let info = ctx.info.read().await;
@@ -26,10 +29,6 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
                 info.replication.offset,
             )
         };
-        println!("cloning to replica");
-        ctx.replicas.write().await.push(Replica {
-            replica: ctx.out.clone(),
-        });
         let output = format!("FULLRESYNC {} {}", &repl_id, &offset.to_string());
         ctx.out
             .write()

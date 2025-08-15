@@ -89,6 +89,15 @@ impl RedisCommand {
 
     pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
         use RedisCommand::*;
+        if ctx.is_master && self.clone().is_write_command() {
+            for Replica { replica } in ctx.replicas.write().await.iter_mut() {
+                replica
+                    .write()
+                    .await
+                    .write_all(&Resp::from(self.clone()).to_bytes())
+                    .await?;
+            }
+        }
         match self {
             Exec => {
                 match exec_cmd(ctx).await {
@@ -138,7 +147,6 @@ impl RedisCommand {
             }
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
-                return Ok(());
             }
             _ => {
                 if ctx.is_master {
@@ -178,20 +186,11 @@ impl RedisCommand {
             Multi => multi_cmd(ctx).await,
             _ => unreachable!(),
         };
-        if ctx.is_master && self.clone().is_write_command() {
-            println!("about to run command");
-            for Replica { replica } in ctx.replicas.write().await.iter_mut() {
-                println!("writing command {self:#?}");
-                replica
-                    .write()
-                    .await
-                    .write_all(&Resp::from(self.clone()).to_bytes())
-                    .await?;
-            }
-        }
         match result {
             Ok(output) => {
-                if ctx.is_master {
+                if (ctx.is_master && self.clone().is_write_command())
+                    || !self.clone().is_write_command()
+                {
                     ctx.out
                         .write()
                         .await
