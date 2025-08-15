@@ -10,7 +10,8 @@ use tokio::{
 };
 
 use crate::{
-    commands::RedisCommand,
+    commands::{CommandQueueList, RedisCommand},
+    db::RedisDatabase,
     mod_flat,
     redis::handle_stream,
     resp::Resp,
@@ -29,9 +30,9 @@ pub async fn connect_to_host(host_address: String, info: RedisInfo) -> Result<Tc
 
 pub async fn read_host_connection(
     connection: TcpStream,
-    sender: mpsc::Sender<RedisCommand>,
-    queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+    db: Arc<RedisDatabase>,
     queued: Arc<Mutex<bool>>,
+    queue_list: CommandQueueList,
     info: Arc<RwLock<RedisInfo>>,
     replicas: Arc<RwLock<Vec<Replica>>>,
     is_replica: bool,
@@ -60,9 +61,9 @@ pub async fn read_host_connection(
     tokio::spawn(async move {
         handle_stream(
             stream,
-            sender.clone(),
-            queue_list.clone(),
+            db,
             queued.clone(),
+            queue_list.clone(),
             info.clone(),
             replicas.clone(),
             is_replica,

@@ -1,37 +1,23 @@
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
 use crate::{
+    commands::CommandResult,
     resp::{self, Resp},
     types::{Context, Replica},
 };
 
 use super::CommandError;
 
-pub async fn replconf_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
+pub async fn replconf_cmd(args: &[Bytes]) -> CommandResult {
     if args.len() == 2 {
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
-            .await?;
+        Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
     } else {
-        ctx.out
-            .write()
-            .await
-            .write_all(
-                &Resp::simple_error(CommandError::WrongNumArgs("replconf".into())).to_bytes(),
-            )
-            .await?;
+        Err(CommandError::WrongNumArgs("replconf".to_string()))
     }
-    Ok(())
 }
 
-pub async fn psync_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
+pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError> {
     if args.len() > 1 {
         let (repl_id, offset) = {
             let info = ctx.info.read().await;
@@ -40,43 +26,26 @@ where
                 info.replication.offset,
             )
         };
+        let output = format!("FULLRESYNC {} {}", &repl_id, &offset.to_string());
         ctx.out
             .write()
             .await
-            .write_all(
-                &Resp::SimpleString(format!("FULLRESYNC {} {}", &repl_id, &offset.to_string()))
-                    .to_bytes(),
-            )
-            .await?;
+            .write_all(&Resp::SimpleString(Bytes::from(output)).to_bytes())
+            .await
+            .unwrap();
         let binary_rdb = std::fs::read("./static/empty.rdb").unwrap();
         let mut buf = BytesMut::new();
         buf.put_u8(b'$');
         buf.put(binary_rdb.len().to_string().as_bytes());
         buf.put_slice(&[resp::CR, resp::LF]);
         buf.put_slice(&binary_rdb);
-        ctx.out.write().await.write_all(&buf).await?;
+        ctx.out.write().await.write_all(&buf).await.unwrap();
 
         ctx.replicas.write().await.push(Replica {
             replica: ctx.out.clone(),
         });
+        Ok(())
     } else {
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::simple_error(CommandError::WrongNumArgs("psync".into())).to_bytes())
-            .await?;
+        Err(CommandError::WrongNumArgs("psync".into()))
     }
-    Ok(())
-}
-
-pub async fn write_to_replicas(ctx: &Context, input: &[Resp]) -> Result<(), CommandError> {
-    println!("wrote command {:#?}", input[1].clone());
-    for Replica { replica } in ctx.replicas.write().await.iter_mut() {
-        replica
-            .write()
-            .await
-            .write_all(&Resp::Array(input.to_vec()).to_bytes())
-            .await?;
-    }
-    Ok(())
 }

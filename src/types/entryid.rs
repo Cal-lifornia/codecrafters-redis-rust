@@ -1,5 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, io::Read};
 
+use bytes::{Buf, Bytes};
 use thiserror::Error;
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct EntryId {
@@ -11,11 +12,14 @@ impl EntryId {
     fn new(ms_time: usize, sequence: usize) -> Self {
         Self { ms_time, sequence }
     }
-    pub fn new_or_wildcard_from_string(value: String) -> Result<(Self, bool), EntryIdParseErrore> {
-        let (ms_time, sequence) = match value.split_once("-") {
+    pub fn new_or_wildcard_from_bytes(value: Bytes) -> Result<(Self, bool), EntryIdParseError> {
+        let mut buf = String::new();
+        value.reader().read_to_string(&mut buf).unwrap();
+
+        let (ms_time, sequence) = match buf.split_once("-") {
             Some((ms_time, sequence)) => (ms_time, sequence),
             None => {
-                return Err(EntryIdParseErrore::MissingCharacter('-'));
+                return Err(EntryIdParseError::MissingCharacter('-'));
             }
         };
         let mut wildcard = false;
@@ -58,7 +62,7 @@ impl From<EntryId> for String {
 }
 
 impl TryFrom<String> for EntryId {
-    type Error = EntryIdParseErrore;
+    type Error = EntryIdParseError;
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.split_once("-") {
             Some((ms_time, sequence)) => Ok(Self::new(
@@ -71,8 +75,19 @@ impl TryFrom<String> for EntryId {
     }
 }
 
+impl TryFrom<Bytes> for EntryId {
+    type Error = EntryIdParseError;
+
+    fn try_from(value: Bytes) -> Result<Self, Self::Error> {
+        let mut buf = String::new();
+        value.reader().read_to_string(&mut buf).unwrap();
+
+        Self::try_from(buf)
+    }
+}
+
 #[derive(Debug, Error)]
-pub enum EntryIdParseErrore {
+pub enum EntryIdParseError {
     #[error("error parsing type to number")]
     NumParseError(#[from] std::num::ParseIntError),
     #[error("missing character {0}")]

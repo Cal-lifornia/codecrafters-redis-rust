@@ -4,35 +4,36 @@ use std::{
     time::Instant,
 };
 
-use crate::{commands::Responder, types::EntryId};
+use bytes::Bytes;
+use tokio::sync::oneshot;
 
-pub type ListBlocklist =
-    Arc<tokio::sync::Mutex<HashMap<String, Vec<Responder<Option<Vec<String>>>>>>>;
+use crate::types::EntryId;
+
+pub type ListBlocklist = Arc<tokio::sync::Mutex<HashMap<Bytes, Vec<oneshot::Sender<Bytes>>>>>;
 pub type StreamBlocklist = Arc<
-    tokio::sync::Mutex<HashMap<String, Vec<Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>>>>,
+    tokio::sync::Mutex<
+        HashMap<Bytes, Vec<oneshot::Sender<Vec<(Bytes, Vec<DatabaseStreamEntry>)>>>>,
+    >,
 >;
 
 #[derive(Debug, Clone)]
 pub enum DatabaseEntry {
     String(DatabaseString),
     Integer(i32),
-    List(VecDeque<String>),
+    List(VecDeque<Bytes>),
     Stream(Vec<DatabaseStreamEntry>),
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct DatabaseString {
-    value: String,
+    value: Bytes,
     expiry: Option<Instant>,
 }
 impl DatabaseString {
-    pub fn new(value: &str, expiry: Option<Instant>) -> Self {
-        Self {
-            value: value.to_string(),
-            expiry,
-        }
+    pub fn new(value: Bytes, expiry: Option<Instant>) -> Self {
+        Self { value, expiry }
     }
-    pub fn value(&self) -> &str {
+    pub fn value(&self) -> &Bytes {
         &self.value
     }
     pub fn is_expired(&self) -> bool {
@@ -42,15 +43,15 @@ impl DatabaseString {
             false
         }
     }
-    pub fn update_value_ttl_expiry(&mut self, value: &str) {
-        self.value = value.to_string()
+    pub fn update_value_ttl_expiry(&mut self, value: Bytes) {
+        self.value = value
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DatabaseStreamEntry {
     pub id: EntryId,
-    pub values: HashMap<String, String>,
+    pub values: HashMap<Bytes, Bytes>,
 }
 
 impl Ord for DatabaseStreamEntry {

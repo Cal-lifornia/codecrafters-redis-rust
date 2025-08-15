@@ -1,88 +1,41 @@
-use tokio::{
-    io::AsyncWriteExt,
-    sync::oneshot,
-};
+use bytes::Bytes;
 
-use crate::{resp::Resp, types::Context};
+use crate::{commands::CommandResult, resp::Resp, types::Context};
 
-use super::{CommandError, RedisCommand};
+use super::CommandError;
 
-pub async fn echo_cmd(
-    ctx: &mut Context,
-    args: &[String],
-) -> Result<(), CommandError>
-where
-    
-{
+pub async fn echo_cmd(args: &[Bytes]) -> CommandResult {
     if args.len() == 1 {
-        ctx.out.write().await
-            .write_all(&Resp::BulkString(args[0].to_string()).to_bytes())
-            .await?;
+        Ok(Resp::BulkString(args[0].clone()))
     } else {
-        ctx.out.write().await
-            .write_all(
-                &Resp::SimpleError(CommandError::WrongNumArgs("echo".to_string()).to_string())
-                    .to_bytes(),
-            )
-            .await?;
+        Err(CommandError::WrongNumArgs("echo".to_string()))
     }
-    Ok(())
 }
 
-pub async fn type_cmd(
-    ctx: &mut Context,
-    args: &[String],
-) -> Result<(), CommandError>
-where
-    
-{
-    if !args.len() > 1 {
-        let (responder, receiver) = oneshot::channel();
-        ctx.db_sender
-            .send(RedisCommand::Type {
-                key: args[0].clone(),
-                responder,
-            })
-            .await?;
-        ctx.out.write().await
-            .write_all(&Resp::SimpleString(receiver.await.unwrap()?).to_bytes())
-            .await?;
+pub async fn type_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    if !args.is_empty() {
+        let result = ctx.db.get_type(&args[0]).await;
+        Ok(Resp::BulkString(Bytes::from(result)))
     } else {
-        ctx.out.write().await
-            .write_all(&Resp::simple_error(CommandError::WrongNumArgs("list".into())).to_bytes())
-            .await?;
+        Err(CommandError::WrongNumArgs("list".into()))
     }
-    Ok(())
 }
 
-pub async fn info_cmd(
-    ctx: &mut Context,
-    args: &[String],
-) -> Result<(), CommandError>
-where
-    
-{
+pub async fn info_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if !args.is_empty() {
         let info = ctx.info.read().await;
-        match args[0].to_lowercase().as_str() {
-            "replication" => {
+        match args[0].to_ascii_lowercase().as_slice() {
+            b"replication" => {
                 let replication = info.replication.clone();
-                ctx.out.write().await
-                    .write_all(
-                        &Resp::BulkString(format!(
-                            "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}\n",
-                            replication.role, replication.replication_id, replication.offset
-                        ))
-                        .to_bytes(),
-                    )
-                    .await?;
+                let output = format!(
+                    "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}\n",
+                    replication.role, replication.replication_id, replication.offset
+                );
+                Ok(Resp::BulkString(Bytes::from(output)))
             }
-            _ => {
-                ctx.out.write().await
-                    .write_all(&Resp::simple_error(CommandError::InvalidInput).to_bytes())
-                    .await?;
-            }
+            _ => Err(CommandError::InvalidInput),
         }
+    } else {
+        Err(CommandError::WrongNumArgs("info".to_string()))
     }
-    Ok(())
 }

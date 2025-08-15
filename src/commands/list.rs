@@ -1,201 +1,112 @@
+use bytes::{Buf, Bytes};
+use std::io::Read;
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 use tokio::sync::oneshot;
 use tokio::time::timeout;
 
 use crate::{resp::Resp, types::Context};
 
-use crate::commands::CommandError;
+use crate::commands::{CommandError, CommandResult};
 
 use super::RedisCommand;
 
-pub async fn rpush_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
-    let (responder, receiver) = oneshot::channel();
-    ctx.db_sender
-        .send(RedisCommand::Rpush {
-            key: args[0].clone(),
-            values: args[1..].to_vec(),
-            responder,
-        })
-        .await?;
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
-        .await?;
-    Ok(())
+pub async fn rpush_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    let results = ctx.db.push_list(&args[0], &args[1..]).await;
+    Ok(Resp::Integer(results))
 }
 
-pub async fn lpush_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
-    let (responder, receiver) = oneshot::channel();
-    ctx.db_sender
-        .send(RedisCommand::Lpush {
-            key: args[0].clone(),
-            values: args[1..].to_vec(),
-            responder,
-        })
-        .await?;
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
-        .await?;
-    Ok(())
+pub async fn lpush_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    let results = ctx.db.prepend_list(&args[0], &args[1..]).await;
+    Ok(Resp::Integer(results))
 }
 
-pub async fn lrange_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
+pub async fn lrange_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() > 3 {
         return Err(CommandError::WrongNumArgs("lpush".to_string()));
     }
-    let (responder, receiver) = oneshot::channel();
+    let mut buf = String::new();
 
-    ctx.db_sender
-        .send(RedisCommand::Lrange {
-            key: args[0].clone(),
-            start: args[1].parse()?,
-            end: args[2].parse()?,
-            responder,
-        })
-        .await?;
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::StringArray(receiver.await.unwrap()?).to_bytes())
-        .await?;
-    Ok(())
+    args[1].clone().reader().read_to_string(&mut buf).unwrap();
+    let start = buf.parse()?;
+
+    buf.clear();
+
+    args[2].clone().reader().read_to_string(&mut buf).unwrap();
+    let end = buf.parse()?;
+
+    let result = ctx.db.read_list(&args[0], start, end).await;
+
+    Ok(Resp::bulk_string_array(&result))
 }
-pub async fn llen_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
+pub async fn llen_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("llen".to_string()));
     }
 
-    let (responder, receiver) = oneshot::channel();
-    ctx.db_sender
-        .send(RedisCommand::Llen {
-            key: args[0].clone(),
-            responder,
-        })
-        .await?;
-
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
-        .await?;
-    Ok(())
+    let result = ctx.db.get_list_length(&args[0]).await;
+    Ok(Resp::Integer(result))
 }
-pub async fn lpop_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
+pub async fn lpop_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() > 2 {
         return Err(CommandError::WrongNumArgs("lpop".to_string()));
     }
-    let (responder, receiver) = oneshot::channel();
 
     let count: Option<usize> = if args.len() == 2 {
-        Some(args[1].parse::<usize>()?)
+        let mut buf = String::new();
+        args[1].clone().reader().read_to_string(&mut buf).unwrap();
+        Some(buf.parse::<usize>()?)
     } else {
         None
     };
 
-    ctx.db_sender
-        .send(RedisCommand::Lpop {
-            key: args[0].clone(),
-            count,
-            responder,
-        })
-        .await?;
+    let results = ctx.db.pop_front_list(&args[0], count).await;
 
-    match receiver.await.unwrap()? {
+    match results {
         Some(list) => {
             if list.len() == 1 {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::BulkString(list[0].clone()).to_bytes())
-                    .await?
+                Ok(Resp::BulkString(list[0].clone()))
             } else {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::StringArray(list).to_bytes())
-                    .await?
+                Ok(Resp::bulk_string_array(&list))
             }
         }
-        None => {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::NullBulkString.to_bytes())
-                .await?
-        }
-    };
-    Ok(())
+        None => Ok(Resp::NullBulkString),
+    }
 }
 
-pub async fn blpop_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
-where
-{
-    if args.len() > 2 {
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::simple_error(CommandError::WrongNumArgs("blpop".into())).to_bytes())
-            .await?;
-    } else {
-        let (responder, receiver) = oneshot::channel();
-
+pub async fn blpop_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    if !args.len() > 2 {
+        if let Some(result) = ctx.db.check_pop_list(&args[0]).await {
+            return Ok(Resp::bulk_string_array(&[args[0].clone(), result]));
+        }
         let count = if args.len() == 2 {
-            args[1].parse::<f32>()?
+            let mut buf = String::new();
+            args[1].clone().reader().read_to_string(&mut buf).unwrap();
+            buf.parse::<f32>()?
         } else {
             0.0
         };
 
-        ctx.db_sender
-            .send(RedisCommand::Blpop {
-                key: args[0].clone(),
-                responder,
-            })
-            .await?;
+        let (sender, receiver) = oneshot::channel();
+        {
+            let mut blocklist = ctx.db.list_blocklist.lock().await;
+            if let Some(waiters) = blocklist.get_mut(&args[0]) {
+                waiters.push(sender);
+            }
+        }
 
-        let response = if count > 0.0 {
-            let timeout = timeout(Duration::from_secs_f32(count), receiver).await;
-            match timeout {
-                Ok(result) => result.unwrap(),
-                Err(_) => {
-                    ctx.out
-                        .write()
-                        .await
-                        .write_all(&Resp::NullBulkString.to_bytes())
-                        .await?;
-                    return Ok(());
-                }
+        if count > 0.0 {
+            let output = timeout(Duration::from_secs_f32(count), receiver).await;
+            match output {
+                Ok(result) => Ok(Resp::bulk_string_array(&[args[0].clone(), result.unwrap()])),
+                Err(_) => Ok(Resp::NullBulkString),
             }
         } else {
-            receiver.await.unwrap()
-        };
-
-        if let Some(results) = response? {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::StringArray(results).to_bytes())
-                .await?;
-        } else {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::SimpleError("failed to get results".to_string()).to_bytes())
-                .await?;
+            let result = receiver.await.unwrap();
+            Ok(Resp::bulk_string_array(&[args[0].clone(), result]))
         }
+    } else {
+        Err(CommandError::WrongNumArgs("blpop".into()))
     }
-    Ok(())
 }

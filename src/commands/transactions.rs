@@ -1,42 +1,28 @@
+use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 
-use crate::resp::{CR, LF};
 use crate::{resp::Resp, types::Context};
 
-use crate::commands::CommandError;
+use crate::commands::{CommandError, CommandResult};
 
-use super::parse_array_command;
-
-pub async fn exec_cmd(ctx: &mut Context) -> Result<(), CommandError>
+pub async fn exec_cmd(ctx: &Context) -> Result<(), CommandError>
 where
 {
     {
         let queued = ctx.queued.lock().await;
         if !(*queued) {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
-                .await?;
-            return Ok(());
+            return Err(CommandError::Custom("EXEC without MULTI".to_string()));
         }
     }
 
     handle_transactions(ctx).await?;
     Ok(())
 }
-pub async fn discard_cmd(ctx: &mut Context) -> Result<(), CommandError>
-where
-{
+pub async fn discard_cmd(ctx: &Context) -> CommandResult {
     {
         let mut queued = ctx.queued.lock().await;
         if !(*queued) {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::simple_error("DISCARD without MULTI").to_bytes())
-                .await?;
-            return Ok(());
+            return Err(CommandError::Custom("DISCARD without MULTI".to_string()));
         }
         *queued = false;
     }
@@ -44,30 +30,16 @@ where
         ctx.queue_list.lock().await.clear();
     }
 
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
-        .await?;
-    Ok(())
+    Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
 }
 
-pub async fn multi_cmd(ctx: &mut Context) -> Result<(), CommandError>
-where
-{
+pub async fn multi_cmd(ctx: &Context) -> CommandResult {
     let mut queued = ctx.queued.lock().await;
     *queued = true;
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::SimpleString("OK".to_string()).to_bytes())
-        .await?;
-    Ok(())
+    Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
 }
 
-pub async fn handle_transactions(ctx: &mut Context) -> Result<(), CommandError>
-where
-{
+pub async fn handle_transactions(ctx: &Context) -> Result<(), CommandError> {
     {
         let mut queued = ctx.queued.lock().await;
         *queued = false;
@@ -82,35 +54,13 @@ where
             .await
             .write_all(&Resp::Array(vec![]).to_bytes())
             .await?;
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::simple_error("EXEC without MULTI").to_bytes())
-            .await?;
-        return Ok(());
+        return Err(CommandError::Custom("EXEC without MULTI".to_string()));
     }
 
-    ctx.out.write().await.write_all(b"*").await?;
-    ctx.out
-        .write()
-        .await
-        .write_all(queue_list.len().to_string().as_bytes())
-        .await?;
-    ctx.out.write().await.write_all(&[CR, LF]).await?;
     for input in queue_list {
-        let result = Box::pin(parse_array_command(&input, ctx));
-        match result.await {
-            Ok(_) => {}
-            Err(err) => {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
-                    .await?;
-            }
-        }
+        let result = Box::pin(input.run_command(ctx));
+        result.await?
     }
-
     {
         let mut locked_queue_list = ctx.queue_list.lock().await;
         locked_queue_list.clear();

@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Result};
+use bytes::Bytes;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -11,28 +12,42 @@ use crate::{
 
 pub async fn handshake(socket: &mut TcpStream, info: RedisInfo) -> Result<()> {
     socket
-        .write_all(&Resp::str_array(&["PING"]).to_bytes())
+        .write_all(&Resp::bulk_string_array(&[Bytes::from_static(b"PING")]).to_bytes())
         .await?;
 
     expect_simple_string(socket, "PONG").await?;
 
     socket
-        .write_all(&Resp::str_array(&["REPLCONF", "listening-port", &info.port]).to_bytes())
+        .write_all(
+            &Resp::bulk_string_array(&[
+                Bytes::from_static(b"REPLCONF"),
+                Bytes::from_static(b"listening-port"),
+                Bytes::from(info.port),
+            ])
+            .to_bytes(),
+        )
         .await?;
 
     expect_simple_string(socket, "OK").await?;
     socket
-        .write_all(&Resp::str_array(&["REPLCONF", "capa", "psync2"]).to_bytes())
+        .write_all(
+            &Resp::bulk_string_array(&[
+                Bytes::from_static(b"REPLCONF"),
+                Bytes::from_static(b"capa"),
+                Bytes::from_static(b"psync2"),
+            ])
+            .to_bytes(),
+        )
         .await?;
 
     expect_simple_string(socket, "OK").await?;
 
     socket
         .write_all(
-            &Resp::str_array(&[
-                "PSYNC",
-                &info.replication.replication_id,
-                &info.replication.offset.to_string(),
+            &Resp::bulk_string_array(&[
+                Bytes::from_static(b"PSYNC"),
+                Bytes::from(info.replication.replication_id),
+                Bytes::from(info.replication.offset.to_string()),
             ])
             .to_bytes(),
         )
@@ -58,7 +73,7 @@ async fn expect_simple_string(socket: &mut TcpStream, expecting: &str) -> Result
 
     if let Resp::SimpleString(res) = response {
         if res != expecting {
-            bail!("expected {res}")
+            bail!("expected {expecting}")
         } else {
             Ok(())
         }

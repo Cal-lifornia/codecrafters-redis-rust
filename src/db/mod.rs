@@ -1,47 +1,31 @@
 use std::{
     collections::{HashMap, VecDeque},
+    io::Read,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use thiserror::Error;
+use bytes::{Buf, Bytes};
 use tokio::{
-    sync::{broadcast, mpsc, oneshot, Mutex, RwLock},
+    sync::{oneshot, Mutex, RwLock},
     task::JoinSet,
 };
 
-use crate::{
-    commands::{RedisCommand, Responder},
-    types::EntryId,
-};
+use crate::types::DatabaseStreamEntry;
+use crate::types::{DatabaseEntry, DatabaseString, EntryId, ListBlocklist, StreamBlocklist};
 
-mod types;
-pub use types::*;
-
-struct Database(RwLock<HashMap<String, DatabaseEntry>>);
-
-impl Default for Database {
-    fn default() -> Self {
-        Self(RwLock::new(HashMap::new()))
-    }
-}
+pub type Database = Arc<RwLock<HashMap<Bytes, DatabaseEntry>>>;
 
 pub struct RedisDatabase {
     db: Database,
-    sender: mpsc::Sender<RedisCommand>,
-    receiver: tokio::sync::Mutex<mpsc::Receiver<RedisCommand>>,
-    list_blocklist: ListBlocklist,
-    stream_blocklist: StreamBlocklist,
+    pub list_blocklist: ListBlocklist,
+    pub stream_blocklist: StreamBlocklist,
 }
 
 impl Default for RedisDatabase {
     fn default() -> Self {
-        let (sender, receiver) = mpsc::channel(32);
-        let receiver = tokio::sync::Mutex::new(receiver);
         Self {
-            db: Database::default(),
-            sender,
-            receiver,
+            db: Arc::new(RwLock::new(HashMap::new())),
             list_blocklist: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             stream_blocklist: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -49,173 +33,16 @@ impl Default for RedisDatabase {
 }
 
 impl RedisDatabase {
-    pub fn clone_sender(&self) -> mpsc::Sender<RedisCommand> {
-        self.sender.clone()
-    }
-
-    pub async fn handle_receiver(&self) -> Result<(), DatabaseError> {
-        while let Some(command) = self.receiver.lock().await.recv().await {
-            use RedisCommand::*;
-
-            match command {
-                Get {
-                    key,
-                    responder: resp,
-                } => resp.send(self.db.get_key_value(&key).await).unwrap(),
-
-                Set { args, responder } => responder
-                    .send(
-                        self.db
-                            .set_key_value(&args.key, &args.value, args.expiry, args.keep_ttl)
-                            .await,
-                    )
-                    .unwrap(),
-                Incr { key, responder } => responder
-                    .send(self.db.increase_integer(&key).await)
-                    .unwrap(),
-                Rpush {
-                    key,
-                    values,
-                    responder,
-                } => {
-                    responder
-                        .send(self.db.push_list(&key, &values).await)
-                        .unwrap();
-                    let blockers = Arc::clone(&self.list_blocklist);
-                    self.db
-                        .handle_blockers(key.as_str(), &blockers.clone())
-                        .await?;
-                }
-                Lpush {
-                    key,
-                    values,
-                    responder,
-                } => {
-                    responder
-                        .send(self.db.prepend_list(&key, &values).await)
-                        .unwrap();
-                    let blockers = Arc::clone(&self.list_blocklist);
-                    self.db
-                        .handle_blockers(key.as_str(), &blockers.clone())
-                        .await?;
-                }
-                Lrange {
-                    key,
-                    start,
-                    end,
-                    responder,
-                } => responder
-                    .send(self.db.read_list(&key, start, end).await)
-                    .unwrap(),
-                Llen { key, responder } => {
-                    responder.send(self.db.get_list_length(&key).await).unwrap()
-                }
-                Lpop {
-                    key,
-                    count,
-                    responder,
-                } => responder
-                    .send(self.db.pop_first_list(&key, count).await)
-                    .unwrap(),
-                Blpop { key, responder } => {
-                    match self.db.blocking_pop_first_list(key.as_str()).await {
-                        Ok(Some(result)) => {
-                            responder.send(Ok(Some(result))).unwrap();
-                        }
-                        Ok(None) => {
-                            let mut blockers = self.list_blocklist.lock().await;
-                            if let Some(list) = blockers.get_mut(&key) {
-                                list.push(responder);
-                            } else {
-                                blockers.insert(key, vec![responder]);
-                            }
-                        }
-                        Err(err) => responder.send(Err(err)).unwrap(),
-                    }
-                }
-                Type { key, responder } => {
-                    responder.send(self.db.get_type(&key).await).unwrap();
-                }
-                Xadd {
-                    key,
-                    id,
-                    values,
-                    wildcard,
-                    responder,
-                } => {
-                    responder
-                        .send(
-                            self.db
-                                .add_stream(&key, &id, wildcard, values.clone())
-                                .await,
-                        )
-                        .unwrap();
-                    let mut blocklist = self.stream_blocklist.lock().await;
-                    let tasks = if let Some(waiters) = blocklist.remove(&key) {
-                        let mut tasks = JoinSet::new();
-                        for waiter in waiters {
-                            let key = key.clone();
-                            let values = values.clone();
-                            tasks.spawn(async move {
-                                waiter
-                                    .send(Ok(vec![(key, vec![DatabaseStreamEntry { id, values }])]))
-                            });
-                        }
-                        Some(tasks)
-                    } else {
-                        None
-                    };
-                    drop(blocklist);
-                    if let Some(mut tasks) = tasks {
-                        if let Some(Err(err)) = tasks.join_next().await {
-                            err.to_string();
-                        }
-                    }
-                }
-                Xrange {
-                    key,
-                    start,
-                    stop,
-                    responder,
-                } => {
-                    responder
-                        .send(self.db.range_stream(&key, start, stop).await)
-                        .unwrap();
-                }
-                Xread {
-                    keys,
-                    ids,
-                    block,
-                    responder,
-                } => {
-                    if let Ok(Some(results)) = self.db.read_stream(&keys, &ids, block).await {
-                        responder.send(Ok(results)).unwrap();
-                    } else {
-                        let mut blockers = self.stream_blocklist.lock().await;
-                        if let Some(list) = blockers.get_mut(&keys[0].clone()) {
-                            list.push(responder);
-                        } else {
-                            blockers.insert(keys[0].clone(), vec![responder]);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Database {
-    // async fn delete_expired_entries(&self) -> Result<(), DatabaseError> {
-    //     let mut db = self.0.write().await;
+    // async fn delete_expired_entries(&self) -> () {
+    //     let mut db = self.db.write().await;
     //     let keys = self.get_expired_entries().await;
     //     for key in keys {
     //         db.remove(&key).unwrap();
     //     }
     //     Ok(())
     // }
-    // async fn get_expired_entries(&self) -> Result<Vec<String>, DatabaseError> {
-    //     let db = self.0.read().await;
+    // async fn get_expired_entries(&self) -> Vec<String> {
+    //     let db = self.db.read().await;
     //     Ok(db
     //         .iter()
     //         .filter(|(_, val)| {
@@ -230,121 +57,121 @@ impl Database {
     // }
     pub async fn set_key_value(
         &self,
-        key: &str,
-        value: &str,
+        key: &Bytes,
+        value: Bytes,
         expires: Option<Duration>,
         keep_ttl: bool,
-    ) -> Result<(), DatabaseError> {
-        let mut db = self.0.write().await;
+    ) {
+        let mut db = self.db.write().await;
         let expiry = expires.map(|e| Instant::now() + e);
 
-        match value.parse::<i32>() {
+        let mut buf = String::new();
+
+        value.clone().reader().read_to_string(&mut buf).unwrap();
+
+        match buf.parse::<i32>() {
             Ok(value) => {
-                db.insert(key.to_string(), DatabaseEntry::Integer(value));
-                Ok(())
+                db.insert(key.clone(), DatabaseEntry::Integer(value));
             }
             Err(_) => {
                 if keep_ttl {
                     if let Some(DatabaseEntry::String(entry)) = db.get_mut(key) {
                         if !entry.is_expired() {
-                            entry.update_value_ttl_expiry(value);
-                            return Ok(());
+                            entry.update_value_ttl_expiry(value.clone());
                         }
                     }
                 }
 
                 db.insert(
-                    key.to_string(),
+                    key.clone(),
                     DatabaseEntry::String(DatabaseString::new(value, expiry)),
                 );
-                Ok(())
             }
         }
     }
 
-    pub async fn get_key_value(&self, key: &str) -> Result<Option<String>, DatabaseError> {
+    pub async fn get_key_value(&self, key: &Bytes) -> Option<Bytes> {
         let expired = {
-            let db = self.0.read().await;
+            let db = self.db.read().await;
             match db.get(key) {
                 Some(DatabaseEntry::String(value)) => {
                     if !value.is_expired() {
-                        return Ok(Some(value.value().to_string()));
+                        return Some(value.value().clone());
                     } else {
                         true
                     }
                 }
-                Some(DatabaseEntry::Integer(value)) => return Ok(Some(value.to_string())),
-                Some(_) | None => return Ok(None),
+                Some(DatabaseEntry::Integer(value)) => return Some(value.to_string().into()),
+                Some(_) | None => return None,
             }
         };
         if expired {
-            let mut db = self.0.write().await;
+            let mut db = self.db.write().await;
             db.remove(key);
         }
-        Ok(None)
+        None
     }
 
-    pub async fn increase_integer(&self, key: &str) -> Result<i32, DatabaseError> {
-        let mut db = self.0.write().await;
+    pub async fn increase_integer(&self, key: &Bytes) -> Result<i32, std::io::Error> {
+        let mut db = self.db.write().await;
         match db.get_mut(key) {
             Some(DatabaseEntry::Integer(value)) => {
                 *value += 1;
                 Ok(*value)
             }
-            Some(_) => Err(DatabaseError::WrongType),
+            Some(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "value is not an integer or out of range",
+            )),
             None => {
-                db.insert(key.to_string(), DatabaseEntry::Integer(1));
+                db.insert(key.clone(), DatabaseEntry::Integer(1));
                 Ok(1)
             }
         }
     }
 
-    pub async fn push_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
-        let mut db = self.0.write().await;
-        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            list.extend(
-                values
-                    .iter()
-                    .map(|val| val.to_string())
-                    .collect::<VecDeque<String>>(),
-            );
-            Ok(list.len() as i32)
+    pub async fn push_list(&self, key: &Bytes, values: &[Bytes]) -> i32 {
+        let mut db = self.db.write().await;
+        let results = if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+            list.extend(values.to_vec());
+            list.len() as i32
         } else {
             db.insert(
-                key.to_string(),
-                DatabaseEntry::List(values.iter().map(|val| val.to_string()).collect()),
+                key.clone(),
+                DatabaseEntry::List(VecDeque::from_iter(values.to_vec())),
             );
-            Ok(values.len() as i32)
-        }
+            values.len() as i32
+        };
+        drop(db);
+        self.handle_blockers(key).await;
+        results
     }
 
-    pub async fn prepend_list(&self, key: &str, values: &[String]) -> Result<i32, DatabaseError> {
-        let mut db = self.0.write().await;
-        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+    pub async fn prepend_list(&self, key: &Bytes, values: &[Bytes]) -> i32 {
+        let mut db = self.db.write().await;
+        let results = if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             values
                 .iter()
-                .for_each(|value| list.push_front(value.to_string()));
-            Ok(list.len() as i32)
+                .for_each(|value| list.push_front(value.clone()));
+            list.len() as i32
         } else {
             db.insert(
-                key.to_string(),
-                DatabaseEntry::List(values.iter().rev().map(|value| value.to_string()).collect()),
+                key.clone(),
+                DatabaseEntry::List(VecDeque::from_iter(values.iter().rev().cloned())),
             );
-            Ok(values.len() as i32)
-        }
+            values.len() as i32
+        };
+        drop(db);
+        self.handle_blockers(key).await;
+        results
     }
 
-    pub async fn read_list(
-        &self,
-        key: &str,
-        start: i32,
-        end: i32,
-    ) -> Result<Vec<String>, DatabaseError> {
-        let db = self.0.read().await;
+    pub async fn read_list(&self, key: &Bytes, start: i32, end: i32) -> Vec<Bytes> {
+        let db = self.db.read().await;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
             let len = list.len() as i32;
             if start > len - 1 {
-                return Ok([].to_vec());
+                return [].to_vec();
             };
             let start = if start < 0 { len + start } else { start };
             let end = if end < 0 { len + end } else { end };
@@ -352,120 +179,90 @@ impl Database {
             let end = end.min(len - 1) as usize;
 
             if start > end {
-                return Ok([].to_vec());
+                return [].to_vec();
             }
 
-            Ok(list.range(start..=end).cloned().collect())
+            list.range(start..=end).cloned().collect()
         } else {
-            Ok([].to_vec())
+            [].to_vec()
         }
     }
 
-    pub async fn get_list_length(&self, key: &str) -> Result<i32, DatabaseError> {
-        let db = self.0.read().await;
+    pub async fn get_list_length(&self, key: &Bytes) -> i32 {
+        let db = self.db.read().await;
         if let Some(DatabaseEntry::List(list)) = db.get(key) {
-            Ok(list.len() as i32)
+            list.len() as i32
         } else {
-            Ok(0)
+            0
         }
     }
 
-    async fn pop_front_list_only(&self, key: &str) -> Result<Option<String>, DatabaseError> {
-        let mut db = self.0.write().await;
-        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
-            let result = list.pop_front();
-            Ok(result)
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn pop_first_list(
-        &self,
-        key: &str,
-        count: Option<usize>,
-    ) -> Result<Option<Vec<String>>, DatabaseError> {
-        let mut db = self.0.write().await;
+    pub async fn pop_front_list(&self, key: &Bytes, count: Option<usize>) -> Option<Vec<Bytes>> {
+        let mut db = self.db.write().await;
         if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             if let Some(mut count) = count {
                 count = count.min(list.len());
-                let mut results: Vec<String> = vec![];
+                let mut results: Vec<Bytes> = vec![];
                 for _ in 0..count {
                     results.push(list.pop_front().unwrap());
                 }
-                Ok(Some(results))
+                Some(results)
             } else {
-                Ok(Some(vec![list.pop_front().unwrap()]))
+                Some(vec![list.pop_front().unwrap()])
             }
         } else {
-            Ok(None)
+            None
         }
     }
 
-    pub async fn blocking_pop_first_list(
-        &self,
-        key: &str,
-    ) -> Result<Option<Vec<String>>, DatabaseError> {
-        let db = self.0.read().await;
-        if let Some(DatabaseEntry::List(list)) = db.get(key) {
+    pub async fn check_pop_list(&self, key: &Bytes) -> Option<Bytes> {
+        let mut db = self.db.write().await;
+        if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
             if !list.is_empty() {
-                if let Some(result) = self.pop_front_list_only(key).await? {
-                    return Ok(Some(vec![key.to_string(), result]));
-                }
+                return list.pop_front();
             }
         }
-        Ok(None)
+        None
     }
-    async fn handle_blockers(
-        &self,
-        key: &str,
-        blocklist: &ListBlocklist,
-    ) -> Result<(), DatabaseError> {
-        let mut blockers = blocklist.lock().await;
+    pub async fn handle_blockers(&self, key: &Bytes) {
+        let mut blockers = self.list_blocklist.lock().await;
         if let Some(waiters) = blockers.get_mut(key) {
             if !waiters.is_empty() {
                 if let Some(sender) = get_open_sender(waiters) {
-                    match self.pop_front_list_only(key).await? {
-                        Some(result) => {
-                            sender
-                                .send(Ok(Some(vec![key.to_string(), result])))
-                                .unwrap();
-                        }
-                        None => {
-                            sender.send(Ok(None)).unwrap();
-                        }
+                    let mut db = self.db.write().await;
+                    if let Some(DatabaseEntry::List(list)) = db.get_mut(key) {
+                        let result = list.pop_front().expect("expected list item");
+                        sender.send(result).unwrap();
                     }
                 }
             }
-
             if waiters.is_empty() {
                 blockers.remove(key);
             }
         }
-        Ok(())
     }
 
-    async fn get_type(&self, key: &str) -> Result<String, DatabaseError> {
-        let db = self.0.read().await;
+    pub async fn get_type(&self, key: &Bytes) -> String {
+        let db = self.db.read().await;
         match db.get(key) {
-            Some(DatabaseEntry::String(_)) => Ok("string".into()),
-            Some(DatabaseEntry::List(_)) => Ok("list".into()),
-            Some(DatabaseEntry::Stream(_)) => Ok("stream".into()),
-            Some(DatabaseEntry::Integer(_)) => Ok("integer".into()),
-            None => Ok("none".into()),
+            Some(DatabaseEntry::String(_)) => "string".into(),
+            Some(DatabaseEntry::List(_)) => "list".into(),
+            Some(DatabaseEntry::Stream(_)) => "stream".into(),
+            Some(DatabaseEntry::Integer(_)) => "integer".into(),
+            None => "none".into(),
         }
     }
 
-    async fn add_stream(
+    pub async fn add_stream(
         &self,
-        key: &str,
-        id: &EntryId,
+        key: &Bytes,
+        id: EntryId,
         wildcard: bool,
-        values: HashMap<String, String>,
-    ) -> Result<Option<String>, DatabaseError> {
-        let mut db = self.0.write().await;
-        if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
-            let mut entry_id = *id;
+        values: HashMap<Bytes, Bytes>,
+    ) -> Option<String> {
+        let mut db = self.db.write().await;
+        let results = if let Some(DatabaseEntry::Stream(stream)) = db.get_mut(key) {
+            let mut entry_id = id;
             if wildcard {
                 if let Some(same_time) = stream.last() {
                     if same_time.id.ms_time == entry_id.ms_time {
@@ -479,30 +276,57 @@ impl Database {
             }
             let max = stream.last().unwrap();
             if max.id >= entry_id {
-                return Ok(None);
+                return None;
             }
             stream.push(DatabaseStreamEntry {
                 id: entry_id,
-                values,
+                values: values.clone(),
             });
             stream.sort();
-            Ok(Some(entry_id.to_string()))
+            Some(entry_id.to_string())
         } else {
             db.insert(
-                key.to_string(),
-                DatabaseEntry::Stream(vec![DatabaseStreamEntry { id: *id, values }]),
+                key.clone(),
+                DatabaseEntry::Stream(vec![DatabaseStreamEntry {
+                    id,
+                    values: values.clone(),
+                }]),
             );
-            Ok(Some(id.to_string()))
+            Some(id.to_string())
+        };
+        {
+            let mut blockers = self.stream_blocklist.lock().await;
+            let tasks = if let Some(waiters) = blockers.remove(key) {
+                let mut tasks = JoinSet::new();
+                for waiter in waiters {
+                    let key = key.clone();
+                    let values = values.clone();
+                    tasks.spawn(async move {
+                        waiter.send(vec![(key, vec![DatabaseStreamEntry { id, values }])])
+                    });
+                }
+                Some(tasks)
+            } else {
+                None
+            };
+            drop(blockers);
+
+            if let Some(mut tasks) = tasks {
+                if let Some(Err(err)) = tasks.join_next().await {
+                    eprintln!("ran into error {err}");
+                }
+            }
         }
+        results
     }
 
-    async fn range_stream(
+    pub async fn range_stream(
         &self,
-        key: &str,
+        key: &Bytes,
         start: Option<EntryId>,
         stop: Option<EntryId>,
-    ) -> Result<Vec<DatabaseStreamEntry>, DatabaseError> {
-        let db = self.0.read().await;
+    ) -> Vec<DatabaseStreamEntry> {
+        let db = self.db.read().await;
         if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
             let first_point = match start {
                 Some(start) => stream.partition_point(|value| value.id < start),
@@ -510,66 +334,42 @@ impl Database {
             };
             if let Some(stop) = stop {
                 let last_point = stream.partition_point(|value| value.id <= stop);
-                Ok(stream[first_point..last_point].to_vec())
+                stream[first_point..last_point].to_vec()
             } else {
-                Ok(stream[first_point..].to_vec())
+                stream[first_point..].to_vec()
             }
         } else {
-            Ok(vec![])
+            vec![]
         }
     }
 
-    async fn read_stream(
+    pub async fn read_stream(
         &self,
-        keys: &[String],
+        keys: &[Bytes],
         ids: &[EntryId],
-        block: bool,
-    ) -> Result<Option<Vec<(String, Vec<DatabaseStreamEntry>)>>, DatabaseError> {
-        let db = self.0.read().await;
-        if block {
-            Ok(None)
-        } else {
-            let mut results = vec![];
-            keys.iter().zip(ids.iter()).for_each(|(key, id)| {
-                if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
-                    let result = stream.partition_point(|value| value.id < *id);
-                    results.push((key.to_string(), stream[result..].to_vec()));
-                }
-            });
-            Ok(Some(results))
-        }
+    ) -> Vec<(Bytes, Vec<DatabaseStreamEntry>)> {
+        let db = self.db.read().await;
+        let mut results: Vec<(Bytes, Vec<DatabaseStreamEntry>)> = vec![];
+        keys.iter().zip(ids.iter()).for_each(|(key, id)| {
+            if let Some(DatabaseEntry::Stream(stream)) = db.get(key) {
+                let result = stream.partition_point(|value| value.id < *id);
+                results.push((key.clone(), stream[result..].to_vec()));
+            }
+        });
+        results
     }
 }
 
-fn get_open_sender(
-    waiters: &mut Vec<Responder<Option<Vec<String>>>>,
-) -> Option<Responder<Option<Vec<String>>>> {
+fn get_open_sender(waiters: &mut Vec<oneshot::Sender<Bytes>>) -> Option<oneshot::Sender<Bytes>> {
     for _ in 0..waiters.len() {
-        let sender = waiters.remove(0);
-        if !sender.is_closed() {
-            return Some(sender);
+        let waiter = waiters.remove(0);
+        if !waiter.is_closed() {
+            return Some(waiter);
         }
     }
     None
 }
 
-#[derive(Debug, Error)]
-pub enum DatabaseError {
-    #[error("channel failed to send")]
-    ChannelSendError(String),
-    #[error("Channel receiver error")]
-    ChannelRecvError(#[from] broadcast::error::RecvError),
-    #[error("Failed to join tasks")]
-    TaskJoinError(#[from] tokio::task::JoinError),
-    #[error("value is not an integer or out of range")]
-    WrongType,
-}
-
-impl From<oneshot::error::RecvError> for DatabaseError {
-    fn from(value: oneshot::error::RecvError) -> Self {
-        Self::ChannelSendError(value.to_string())
-    }
-}
 // #[cfg(test)]
 // mod tests {
 //     use std::thread::sleep;

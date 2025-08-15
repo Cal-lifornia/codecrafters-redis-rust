@@ -3,13 +3,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use thiserror::Error;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncReadExt,
     net::{TcpListener, TcpStream},
-    sync::{mpsc, Mutex, RwLock},
+    sync::{Mutex, RwLock},
 };
 
 use crate::{
-    commands::{parse_array_command, CommandError, RedisCommand},
+    commands::{CommandError, CommandQueueList, RedisCommand},
     db::RedisDatabase,
     replication::{connect_to_host, read_host_connection},
     resp::{self, Resp, RespError},
@@ -54,9 +54,9 @@ pub async fn init(
             Ok(connection) => {
                 read_host_connection(
                     connection,
-                    db.clone_sender(),
-                    Arc::new(Mutex::new(vec![])),
+                    db.clone(),
                     Arc::new(Mutex::new(false)),
+                    Arc::new(Mutex::new(vec![])),
                     arc_info.clone(),
                     replicas.clone(),
                     is_master,
@@ -74,7 +74,6 @@ pub async fn init(
         let (socket, _) = listener.accept().await?;
         let info_clone = Arc::clone(&arc_info);
         let db_clone = Arc::clone(&db);
-        let sender = db_clone.clone_sender();
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
         let replicas_clone = replicas.clone();
@@ -82,28 +81,23 @@ pub async fn init(
         tokio::spawn(async move {
             handle_stream(
                 socket,
-                sender.clone(),
-                queue_list,
+                db_clone,
                 queued,
+                queue_list,
                 info_clone,
                 replicas_clone.clone(),
                 is_master,
             )
             .await
         });
-        tokio::spawn(async move {
-            if let Err(err) = db_clone.handle_receiver().await {
-                eprintln!("ran into error: {err:?}");
-            }
-        });
     }
 }
 
 pub async fn handle_stream(
     stream: TcpStream,
-    sender: mpsc::Sender<RedisCommand>,
-    queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+    db: Arc<RedisDatabase>,
     queued: Arc<Mutex<bool>>,
+    queue_list: CommandQueueList,
     info: Arc<RwLock<RedisInfo>>,
     replicas: Arc<RwLock<Vec<Replica>>>,
     master: bool,
@@ -121,9 +115,9 @@ pub async fn handle_stream(
             }
         };
 
-        let mut ctx = Context::new(
+        let ctx = Context::new(
             writer.clone(),
-            sender.clone(),
+            db.clone(),
             queued.clone(),
             queue_list.clone(),
             info.clone(),
@@ -131,23 +125,20 @@ pub async fn handle_stream(
             replicas.clone(),
         );
 
-        if let Err(err) = parse_input(&buf[0..n], &mut ctx).await {
+        if let Err(err) = parse_input(&buf[0..n], &ctx).await {
             eprintln!("ran into error: {err:?}");
             continue;
         }
     }
 }
 
-async fn parse_input(buf: &[u8], ctx: &mut Context) -> Result<(), RedisError> {
+async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
     if let (Resp::Array(contents), _) = resp::parse(buf)? {
-        match parse_array_command(&contents, ctx).await {
+        let cmd = RedisCommand::try_from(contents)?;
+        match cmd.run_command(ctx).await {
             Ok(_) => return Ok(()),
             Err(err) => {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::SimpleError(format!("ERR {err}")).to_bytes())
-                    .await?;
+                eprintln!("ERR {err}");
                 return Ok(());
             }
         }

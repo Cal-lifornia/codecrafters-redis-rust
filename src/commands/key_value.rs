@@ -1,160 +1,70 @@
+use bytes::{Buf, Bytes};
+use std::io::Read;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::oneshot;
 
-use crate::{resp::Resp, types::Context};
+use crate::{
+    commands::{CommandError, CommandResult},
+    resp::Resp,
+    types::Context,
+};
 
-use crate::commands::CommandError;
-
-use super::RedisCommand;
-
-#[derive(Debug)]
-pub struct SetCommandArgs {
-    pub key: String,
-    pub value: String,
-    pub expiry: Option<Duration>,
-    pub keep_ttl: bool,
-}
-
-pub async fn set_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
+pub async fn set_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult
 where
 {
-    let command_args = match args.len() {
-        2 => SetCommandArgs {
-            key: args[0].clone(),
-            value: args[1].clone(),
-            expiry: None,
-            keep_ttl: false,
-        },
+    match args.len() {
+        2 => {
+            ctx.db
+                .set_key_value(&args[0], args[1].clone(), None, false)
+                .await;
+            return Ok(Resp::SimpleString(Bytes::from_static(b"OK")));
+        }
         3 | 4 => {
+            let mut buf = String::new();
             let (key, value, expiry_opt) = (args[0].clone(), args[1].clone(), args[2].clone());
 
-            let keep_ttl = expiry_opt.to_lowercase().as_str() == "keepttl";
+            let keep_ttl = expiry_opt.to_ascii_lowercase().as_slice() == b"keepttl";
             if args.len() != 4 {
-                if ctx.is_master {
-                    return Err(CommandError::InvalidInput);
-                } else {
-                    return Ok(());
-                }
+                return Err(CommandError::WrongNumArgs("set".into()));
             }
-            let expiry_time = args[3].clone();
-            let expiry = match expiry_opt.to_lowercase().as_str() {
-                "ex" => Duration::from_secs(expiry_time.parse::<u64>()?),
-                "px" => Duration::from_millis(expiry_time.parse::<u64>()?),
-                "exat" => Duration::from_secs(expiry_time.parse::<u64>()?),
-                "pxat" => Duration::from_millis(expiry_time.parse::<u64>()?),
+            let expiry = match expiry_opt.to_ascii_lowercase().as_slice() {
+                b"ex" => Duration::from_secs(buf.parse::<u64>()?),
+                b"px" => Duration::from_millis(buf.parse::<u64>()?),
+                b"exat" => Duration::from_secs(buf.parse::<u64>()?),
+                b"pxat" => Duration::from_millis(buf.parse::<u64>()?),
                 _ => {
-                    if ctx.is_master {
-                        ctx.out
-                            .write()
-                            .await
-                            .write_all(
-                                &Resp::simple_error(CommandError::InvalidCommand(
-                                    expiry_opt.to_string(),
-                                ))
-                                .to_bytes(),
-                            )
-                            .await
-                            .unwrap();
-                    }
-                    return Ok(());
+                    buf.clear();
+
+                    expiry_opt.reader().read_to_string(&mut buf).unwrap();
+                    return Err(CommandError::InvalidArgument(buf));
                 }
             };
 
-            SetCommandArgs {
-                key,
-                value,
-                expiry: Some(expiry),
-                keep_ttl,
-            }
+            ctx.db
+                .set_key_value(&key, value, Some(expiry), keep_ttl)
+                .await;
         }
-        _ => {
-            if ctx.is_master {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(
-                        &Resp::simple_error(CommandError::WrongNumArgs("get".to_string()))
-                            .to_bytes(),
-                    )
-                    .await
-                    .unwrap();
-            }
-            return Ok(());
-        }
-    };
-
-    let (responder, receiver) = oneshot::channel();
-    ctx.db_sender
-        .send(RedisCommand::Set {
-            args: command_args,
-            responder,
-        })
-        .await?;
-    receiver.await.unwrap()?;
-    if ctx.is_master {
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::BulkString("OK".to_string()).to_bytes())
-            .await?;
+        _ => return Err(CommandError::WrongNumArgs("get".to_string())),
     }
 
-    Ok(())
+    Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
 }
-pub async fn get_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
+pub async fn get_cmd(ctx: &Context, args: &[Bytes]) -> Result<Resp, CommandError>
 where
 {
     if !args.len() > 1 {
-        let (responder, receiver) = oneshot::channel();
-        ctx.db_sender
-            .send(RedisCommand::Get {
-                key: args[0].clone(),
-                responder,
-            })
-            .await?;
-        match receiver.await.unwrap()? {
-            Some(val) => {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::SimpleString(val).to_bytes())
-                    .await?;
-            }
-            None => {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::NullBulkString.to_bytes())
-                    .await?;
-            }
+        let result = match ctx.db.get_key_value(&args[0]).await {
+            Some(val) => Resp::SimpleString(val),
+            None => Resp::NullBulkString,
         };
+        Ok(result)
     } else {
-        ctx.out
-            .write()
-            .await
-            .write_all(
-                &Resp::simple_error(CommandError::WrongNumArgs("get".to_string())).to_bytes(),
-            )
-            .await?;
+        Err(CommandError::WrongNumArgs("get".to_string()))
     }
-    Ok(())
 }
 
-pub async fn incr_cmd(ctx: &mut Context, args: &[String]) -> Result<(), CommandError>
+pub async fn incr_cmd(ctx: &Context, args: &[Bytes]) -> Result<Resp, CommandError>
 where
 {
-    let (responder, receiver) = oneshot::channel();
-    ctx.db_sender
-        .send(RedisCommand::Incr {
-            key: args[0].clone(),
-            responder,
-        })
-        .await?;
-    ctx.out
-        .write()
-        .await
-        .write_all(&Resp::Integer(receiver.await.unwrap()?).to_bytes())
-        .await?;
-    Ok(())
+    let result = ctx.db.increase_integer(&args[0]).await?;
+    Ok(Resp::Integer(result))
 }

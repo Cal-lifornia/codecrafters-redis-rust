@@ -1,233 +1,335 @@
-use std::collections::HashMap;
+use std::sync::Arc;
 
+use tokio::{io::AsyncWriteExt, sync::Mutex};
+
+use crate::{mod_flat, resp::Resp, types::Replica};
+
+use bytes::Bytes;
 use thiserror::Error;
-use tokio::{io::AsyncWriteExt, sync::oneshot};
 
+use crate::types::{self, Context};
 mod_flat!(basic key_value stream list transactions replica);
 
-use crate::{
-    db::{DatabaseError, DatabaseStreamEntry},
-    mod_flat,
-    resp::Resp,
-    types::{self, Context, EntryId},
-};
+pub type CommandQueueList = Arc<Mutex<Vec<RedisCommand>>>;
 
-#[derive(Debug)]
+pub(crate) type CommandResult = Result<Resp, CommandError>;
+
+#[derive(Debug, Clone)]
 pub enum RedisCommand {
-    Get {
-        key: String,
-        responder: Responder<Option<String>>,
-    },
-    Set {
-        args: SetCommandArgs,
-        responder: Responder<()>,
-    },
-    Incr {
-        key: String,
-        responder: Responder<i32>,
-    },
-    Rpush {
-        key: String,
-        values: Vec<String>,
-        responder: Responder<i32>,
-    },
-    Lpush {
-        key: String,
-        values: Vec<String>,
-        responder: Responder<i32>,
-    },
-    Lrange {
-        key: String,
-        start: i32,
-        end: i32,
-        responder: Responder<Vec<String>>,
-    },
-    Llen {
-        key: String,
-        responder: Responder<i32>,
-    },
-    Lpop {
-        key: String,
-        count: Option<usize>,
-        responder: Responder<Option<Vec<String>>>,
-    },
-    Blpop {
-        key: String,
-        responder: Responder<Option<Vec<String>>>,
-    },
-    Type {
-        key: String,
-        responder: Responder<String>,
-    },
-    Xadd {
-        key: String,
-        id: EntryId,
-        values: HashMap<String, String>,
-        wildcard: bool,
-        responder: Responder<Option<String>>,
-    },
-    Xrange {
-        key: String,
-        start: Option<EntryId>,
-        stop: Option<EntryId>,
-        responder: Responder<Vec<DatabaseStreamEntry>>,
-    },
-    Xread {
-        keys: Vec<String>,
-        ids: Vec<EntryId>,
-        block: bool,
-        responder: Responder<Vec<(String, Vec<DatabaseStreamEntry>)>>,
-    },
+    Ping,
+    Echo(Vec<Bytes>),
+    Get(Vec<Bytes>),
+    Set(Vec<Bytes>),
+    Incr(Vec<Bytes>),
+    Rpush(Vec<Bytes>),
+    Lpush(Vec<Bytes>),
+    Lrange(Vec<Bytes>),
+    LLen(Vec<Bytes>),
+    Lpop(Vec<Bytes>),
+    Blpop(Vec<Bytes>),
+    Type(Vec<Bytes>),
+    Xadd(Vec<Bytes>),
+    Xrange(Vec<Bytes>),
+    Xread(Vec<Bytes>),
+    Exec,
+    Discard,
+    Info(Vec<Bytes>),
+    Multi,
+    Psync(Vec<Bytes>),
+    Replconf(Vec<Bytes>),
 }
-
-pub type CommandResult = Result<Resp, CommandError>;
 
 #[derive(Debug, Error)]
 pub enum CommandError {
-    #[error("invalid command {0}")]
-    InvalidCommand(String),
     #[error("invalid input")]
     InvalidInput,
     #[error("invalid number of arguments for {0}")]
     WrongNumArgs(String),
     #[error("error parsing input {0}")]
     IntParseError(#[from] std::num::ParseIntError),
+    #[error("invalid argument {0}")]
+    InvalidArgument(String),
     #[error("error parsing input {0}")]
     FloatParseError(#[from] std::num::ParseFloatError),
     #[error("{0}")]
     IOError(#[from] std::io::Error),
     #[error("{0}")]
-    SendError(String),
+    EntryParseError(#[from] types::EntryIdParseError),
     #[error("{0}")]
-    DBError(#[from] DatabaseError),
-    #[error("{0}")]
-    EntryParseError(#[from] types::EntryIdParseErrore),
-    #[error("error receiving from channel")]
-    RevvError(#[from] tokio::sync::broadcast::error::RecvError),
+    Custom(String),
 }
 
-impl<T> From<tokio::sync::mpsc::error::SendError<T>> for CommandError {
-    fn from(value: tokio::sync::mpsc::error::SendError<T>) -> Self {
-        Self::SendError(value.to_string())
-    }
-}
-
-pub type Responder<T> = oneshot::Sender<Result<T, DatabaseError>>;
-
-pub async fn parse_array_command(input: &[Resp], ctx: &mut Context) -> Result<(), CommandError>
-where
-{
-    let mut inputs: Vec<String> = vec![];
-    for arg in input {
-        if let Resp::BulkString(val) = arg {
-            inputs.push(val.to_string());
-        } else {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::SimpleString(CommandError::InvalidInput.to_string()).to_bytes())
-                .await
-                .unwrap();
-            return Ok(());
+impl RedisCommand {
+    pub fn is_write_command(self) -> bool {
+        use RedisCommand::*;
+        match self {
+            Ping => false,
+            Echo(_) => false,
+            Get(_) => false,
+            Set(_) => true,
+            Incr(_) => true,
+            Rpush(_) => true,
+            Lpush(_) => true,
+            Lrange(_) => false,
+            LLen(_) => false,
+            Lpop(_) => true,
+            Blpop(_) => true,
+            Type(_) => false,
+            Xadd(_) => true,
+            Xrange(_) => false,
+            Xread(_) => false,
+            Exec => false,
+            Discard => false,
+            Info(_) => false,
+            Multi => false,
+            Psync(_) => false,
+            Replconf(_) => false,
         }
     }
 
-    let (command, args) = inputs.split_first().unwrap();
-
-    match command.to_lowercase().as_str() {
-        "exec" => return exec_cmd(ctx).await,
-        "discard" => return discard_cmd(ctx).await,
-        "info" => return info_cmd(ctx, args).await,
-        _ => {
-            let queued = ctx.queued.lock().await;
-            if *queued {
-                let mut queue_list = ctx.queue_list.lock().await;
-                queue_list.push(input.to_vec());
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::SimpleString("QUEUED".to_string()).to_bytes())
-                    .await?;
+    pub async fn run_command(self, ctx: &Context) -> Result<(), CommandError> {
+        use RedisCommand::*;
+        match self {
+            Exec => {
+                exec_cmd(ctx).await?;
                 return Ok(());
             }
+            Discard => match discard_cmd(ctx).await {
+                Ok(output) => {
+                    ctx.out.write().await.write_all(&output.to_bytes()).await?;
+                    return Ok(());
+                }
+                Err(err) => return Err(err),
+            },
+            Info(ref items) => {
+                let output = info_cmd(ctx, items).await?;
+                ctx.out.write().await.write_all(&output.to_bytes()).await?;
+                return Ok(());
+            }
+            Replconf(ref items) => {
+                let output = replconf_cmd(items).await?;
+                ctx.out.write().await.write_all(&output.to_bytes()).await?;
+                return Ok(());
+            }
+            Psync(ref items) => {
+                psync_cmd(ctx, items).await?;
+                return Ok(());
+            }
+            _ => {
+                if ctx.is_master {
+                    let queued = ctx.queued.lock().await;
+                    if *queued {
+                        let mut queue_list = ctx.queue_list.lock().await;
+                        queue_list.push(self);
+                        ctx.out
+                            .write()
+                            .await
+                            .write_all(
+                                &Resp::SimpleString(Bytes::from_static(b"QUEUED")).to_bytes(),
+                            )
+                            .await?;
+                        return Ok(());
+                    }
+                }
+            }
         }
+
+        let result = match self {
+            Ping => Ok(Resp::SimpleString(Bytes::from_static(b"OK"))),
+            Echo(ref items) => echo_cmd(items).await,
+            Get(ref items) => get_cmd(ctx, items).await,
+            Set(ref items) => set_cmd(ctx, items).await,
+            Incr(ref items) => incr_cmd(ctx, items).await,
+            Rpush(ref items) => rpush_cmd(ctx, items).await,
+            Lpush(ref items) => lpush_cmd(ctx, items).await,
+            Lrange(ref items) => lrange_cmd(ctx, items).await,
+            LLen(ref items) => llen_cmd(ctx, items).await,
+            Lpop(ref items) => lpop_cmd(ctx, items).await,
+            Blpop(ref items) => blpop_cmd(ctx, items).await,
+            Type(ref items) => type_cmd(ctx, items).await,
+            Xadd(ref items) => xadd_cmd(ctx, items).await,
+            Xrange(ref items) => xrange_cmd(ctx, items).await,
+            Xread(ref items) => xread_cmd(ctx, items).await,
+            Multi => multi_cmd(ctx).await,
+            _ => unreachable!(),
+        };
+        if ctx.is_master && self.clone().is_write_command() {
+            for Replica { replica } in ctx.replicas.write().await.iter_mut() {
+                replica
+                    .write()
+                    .await
+                    .write_all(&Resp::from(self.clone()).to_bytes())
+                    .await?;
+            }
+        }
+        match result {
+            Ok(output) => {
+                if ctx.is_master {
+                    ctx.out
+                        .write()
+                        .await
+                        .write_all(&output.to_bytes())
+                        .await
+                        .unwrap();
+                }
+            }
+            Err(err) => {
+                if self.is_write_command() && ctx.is_master {
+                    ctx.out
+                        .write()
+                        .await
+                        .write_all(&Resp::simple_error(err.to_string()).to_bytes())
+                        .await
+                        .unwrap();
+                }
+            }
+        };
+        Ok(())
     }
-
-    match command.to_lowercase().as_str() {
-        "echo" => echo_cmd(ctx, args).await?,
-        "ping" => {
-            ctx.out
-                .write()
-                .await
-                .write_all(&Resp::SimpleString("PONG".to_string()).to_bytes())
-                .await?;
-        }
-        "multi" => multi_cmd(ctx).await?,
-        "get" => get_cmd(ctx, args).await?,
-        "set" => {
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-            set_cmd(ctx, args).await?;
-        }
-        "incr" => {
-            incr_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "rpush" => {
-            rpush_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "lpush" => {
-            lpush_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "lrange" => lrange_cmd(ctx, args).await?,
-        "llen" => llen_cmd(ctx, args).await?,
-        "lpop" => {
-            lpop_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "blpop" => {
-            blpop_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "type" => type_cmd(ctx, args).await?,
-        "xadd" => {
-            xadd_cmd(ctx, args).await?;
-            if ctx.is_master {
-                write_to_replicas(ctx, input).await?;
-            }
-        }
-        "xrange" => xrange_cmd(ctx, args).await?,
-        "xread" => xread_cmd(ctx, args).await?,
-        "psync" => psync_cmd(ctx, args).await?,
-        "replconf" => replconf_cmd(ctx, args).await?,
-
-        _ => {
-            ctx.out
-                .write()
-                .await
-                .write_all(
-                    &Resp::simple_error(CommandError::InvalidCommand(inputs[0].to_string()))
-                        .to_bytes(),
-                )
-                .await?;
-        }
-    };
-    Ok(())
 }
 
+impl TryFrom<Vec<Bytes>> for RedisCommand {
+    type Error = std::io::Error;
+
+    fn try_from(value: Vec<Bytes>) -> Result<Self, Self::Error> {
+        use RedisCommand::*;
+
+        match value[0].to_ascii_lowercase().as_slice() {
+            b"ping" => Ok(Ping),
+            b"echo" => Ok(Echo(value[1..].to_vec())),
+            b"get" => Ok(Get(value[1..].to_vec())),
+            b"set" => Ok(Set(value[1..].to_vec())),
+            b"incr" => Ok(Incr(value[1..].to_vec())),
+            b"rpush" => Ok(Rpush(value[1..].to_vec())),
+            b"lpush" => Ok(Lpush(value[1..].to_vec())),
+            b"llen" => Ok(LLen(value[1..].to_vec())),
+            b"lpop" => Ok(Lpop(value[1..].to_vec())),
+            b"blpop" => Ok(Blpop(value[1..].to_vec())),
+            b"type" => Ok(Type(value[1..].to_vec())),
+            b"xadd" => Ok(Xadd(value[1..].to_vec())),
+            b"xrange" => Ok(Xrange(value[1..].to_vec())),
+            b"xread" => Ok(Xread(value[1..].to_vec())),
+            b"exec" => Ok(Exec),
+            b"discard" => Ok(Discard),
+            b"info" => Ok(Info(value[1..].to_vec())),
+            b"multi" => Ok(Multi),
+            b"psync" => Ok(Psync(value[1..].to_vec())),
+            b"replconf" => Ok(Replconf(value[1..].to_vec())),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "command does not exist",
+            )),
+        }
+    }
+}
+impl TryFrom<Vec<Resp>> for RedisCommand {
+    type Error = std::io::Error;
+
+    fn try_from(value: Vec<Resp>) -> Result<Self, Self::Error> {
+        let mut inputs = vec![];
+        for input in value {
+            if let Resp::BulkString(val) = input {
+                inputs.push(val);
+            } else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "not a redis bulk string",
+                ));
+            }
+        }
+        RedisCommand::try_from(inputs)
+    }
+}
+
+impl From<RedisCommand> for Resp {
+    fn from(value: RedisCommand) -> Self {
+        use RedisCommand::*;
+        let mut output: Vec<Bytes> = vec![];
+        match value {
+            Ping => {
+                output.push(Bytes::from_static(b"into"));
+            }
+            Echo(items) => {
+                output.push(Bytes::from_static(b"echo"));
+                output.extend_from_slice(&items);
+            }
+            Get(items) => {
+                output.push(Bytes::from_static(b"get"));
+                output.extend_from_slice(&items);
+            }
+            Set(items) => {
+                output.push(Bytes::from_static(b"set"));
+                output.extend_from_slice(&items);
+            }
+            Incr(items) => {
+                output.push(Bytes::from_static(b"incr"));
+                output.extend_from_slice(&items);
+            }
+            Rpush(items) => {
+                output.push(Bytes::from_static(b"rpush"));
+                output.extend_from_slice(&items);
+            }
+            Lpush(items) => {
+                output.push(Bytes::from_static(b"lpush"));
+                output.extend_from_slice(&items);
+            }
+            Lrange(items) => {
+                output.push(Bytes::from_static(b"lrange"));
+                output.extend_from_slice(&items);
+            }
+            LLen(items) => {
+                output.push(Bytes::from_static(b"llen"));
+                output.extend_from_slice(&items);
+            }
+            Lpop(items) => {
+                output.push(Bytes::from_static(b"lpop"));
+                output.extend_from_slice(&items);
+            }
+            Blpop(items) => {
+                output.push(Bytes::from_static(b"blpop"));
+                output.extend_from_slice(&items);
+            }
+            Type(items) => {
+                output.push(Bytes::from_static(b"type"));
+                output.extend_from_slice(&items);
+            }
+            Xadd(items) => {
+                output.push(Bytes::from_static(b"xadd"));
+                output.extend_from_slice(&items);
+            }
+            Xrange(items) => {
+                output.push(Bytes::from_static(b"xrange"));
+                output.extend_from_slice(&items);
+            }
+            Xread(items) => {
+                output.push(Bytes::from_static(b"xread"));
+                output.extend_from_slice(&items);
+            }
+            Exec => {
+                output.push(Bytes::from_static(b"exec"));
+            }
+            Discard => {
+                output.push(Bytes::from_static(b"discard"));
+            }
+            Info(items) => {
+                output.push(Bytes::from_static(b"info"));
+                output.extend_from_slice(&items);
+            }
+            Multi => {
+                output.push(Bytes::from_static(b"multi"));
+            }
+            Psync(items) => {
+                output.push(Bytes::from_static(b"psync"));
+                output.extend_from_slice(&items);
+            }
+            Replconf(items) => {
+                output.push(Bytes::from_static(b"replconf"));
+                output.extend_from_slice(&items);
+            }
+        }
+        Resp::bulk_string_array(&output)
+    }
+}
 // #[cfg(test)]
 // mod tests {
 //     use super::*;

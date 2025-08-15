@@ -5,17 +5,17 @@ use bytes::Bytes;
 use tokio::{
     io::AsyncWriteExt,
     net::tcp::OwnedWriteHalf,
-    sync::{mpsc, Mutex, RwLock},
+    sync::{Mutex, RwLock},
 };
 
-use crate::{commands::RedisCommand, resp::Resp};
+use crate::{commands::CommandQueueList, db::RedisDatabase};
 
 use super::RedisInfo;
 pub struct Context {
     pub out: Arc<RwLock<OwnedWriteHalf>>,
-    pub db_sender: mpsc::Sender<RedisCommand>,
+    pub db: Arc<RedisDatabase>,
     pub queued: Arc<Mutex<bool>>,
-    pub queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+    pub queue_list: CommandQueueList,
     pub info: Arc<RwLock<RedisInfo>>,
     pub replicas: Arc<RwLock<Vec<Replica>>>,
     pub is_master: bool,
@@ -28,16 +28,16 @@ pub struct Replica {
 impl Context {
     pub fn new(
         out: Arc<RwLock<OwnedWriteHalf>>,
-        db_sender: mpsc::Sender<RedisCommand>,
+        db: Arc<RedisDatabase>,
         queued: Arc<Mutex<bool>>,
-        queue_list: Arc<Mutex<Vec<Vec<Resp>>>>,
+        queue_list: CommandQueueList,
         info: Arc<RwLock<RedisInfo>>,
         is_master: bool,
         replicas: Arc<RwLock<Vec<Replica>>>,
     ) -> Self {
         Self {
             out,
-            db_sender,
+            db,
             queued,
             queue_list,
             info,
