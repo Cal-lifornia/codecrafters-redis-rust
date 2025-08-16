@@ -9,8 +9,17 @@ use crate::{
 
 use super::CommandError;
 
-pub async fn replconf_cmd(args: &[Bytes]) -> CommandResult {
+pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() == 2 {
+        if !ctx.is_master && args[0].to_ascii_lowercase().as_slice() == b"getack" {
+            let offset = ctx.info.read().await.replication.offset;
+            let output = vec![
+                Resp::BulkString(Bytes::from_static(b"replconf")),
+                Resp::BulkString(Bytes::from_static(b"ack")),
+                Resp::BulkString(Bytes::from(offset.to_string())),
+            ];
+            return Ok(Resp::Array(output));
+        }
         Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
     } else {
         Err(CommandError::WrongNumArgs("replconf".to_string()))

@@ -141,12 +141,24 @@ impl RedisCommand {
                 return Ok(());
             }
             Replconf(ref items) => {
-                let output = replconf_cmd(items).await?;
+                let output = replconf_cmd(ctx, items).await?;
                 ctx.out.write().await.write_all(&output.to_bytes()).await?;
                 return Ok(());
             }
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
+                let output = vec![
+                    Resp::BulkString(Bytes::from_static(b"replconf")),
+                    Resp::BulkString(Bytes::from_static(b"getack")),
+                    Resp::BulkString(Bytes::from_static(b"*")),
+                ];
+                ctx.out
+                    .write()
+                    .await
+                    .write_all(&Resp::Array(output).to_bytes())
+                    .await
+                    .unwrap();
+                return Ok(());
             }
             _ => {
                 if ctx.is_master {
