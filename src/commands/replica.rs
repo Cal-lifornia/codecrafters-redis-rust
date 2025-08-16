@@ -91,8 +91,7 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
 pub async fn wait_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if ctx.ctx_info.is_master && args.len() == 2 {
         let mut buf = String::new();
-        args[0].clone().reader().read_to_string(&mut buf)?;
-        let replica_count = buf.parse::<usize>()?;
+        let replica_count = ctx.replicas.read().await.len();
         {
             *ctx.ctx_info.waiting.write().await = true;
         }
