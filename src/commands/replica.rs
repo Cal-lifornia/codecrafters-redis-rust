@@ -16,6 +16,7 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
         if args[0].to_ascii_lowercase().as_slice() == b"getack" {
             if !ctx.ctx_info.is_master {
                 let offset = ctx.app_info.read().await.replication.offset;
+                println!("offset; {offset}");
                 let output = vec![
                     Resp::BulkString(Bytes::from_static(b"REPLCONF")),
                     Resp::BulkString(Bytes::from_static(b"ACK")),
@@ -26,27 +27,29 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
                 return Ok(getack());
             }
         }
-        // if args[0].to_ascii_lowercase().as_slice() == b"ack" && ctx.ctx_info.is_master {
-        //     let mut offset = String::new();
-        //     args[1]
-        //         .clone()
-        //         .reader()
-        //         .read_to_string(&mut offset)
-        //         .unwrap();
-        //     ctx.app_info.write().await.replication.offset = offset.parse::<i32>()?;
-        // }
+        // if args[0].to_ascii_lowercase().as_slice() == b"ack" {
+        //     if !ctx.ctx_info.is_master {
+        //         let mut offset = String::new();
+        //         args[1]
+        //             .clone()
+        //             .reader()
+        //             .read_to_string(&mut offset)
+        //             .unwrap();
+        //         ctx.app_info.write().await.replication.offset = offset.parse::<i32>()?;
+        //     }
         // else {
-        //     let current_offset = ctx.app_info.read().await.replication.offset;
-        //     let mut buf = String::new();
-        //     args[1].clone().reader().read_to_string(&mut buf)?;
-        //     let updated_offset = buf.parse::<i32>()?;
-        //     if updated_offset > current_offset {
-        //         ctx.app_info.write().await.replication.offset = updated_offset;
-        //     }
-        //     let waiting = *ctx.ctx_info.waiting.read().await;
-        //     if (updated_offset >= current_offset) && waiting {
-        //         *ctx.ctx_info.returned_replicas.write().await += 1;
-        //     }
+        // let current_offset = ctx.app_info.read().await.replication.offset;
+        // let mut buf = String::new();
+        // args[1].clone().reader().read_to_string(&mut buf)?;
+        // let updated_offset = buf.parse::<i32>()?;
+        // if updated_offset > current_offset {
+        //     ctx.app_info.write().await.replication.offset = updated_offset;
+        // }
+        // let waiting = *ctx.ctx_info.waiting.read().await;
+        // if (updated_offset >= current_offset) && waiting {
+        //     *ctx.ctx_info.returned_replicas.write().await += 1;
+        // }
+        // }
         // }
         Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
     } else {
@@ -119,13 +122,13 @@ pub async fn wait_cmd(ctx: &Context, _args: &[Bytes]) -> CommandResult {
     // }
 }
 
-async fn process_wait(ctx: &Context, replica_count: usize) -> CommandResult {
-    let mut returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
-    while returned_replicas < replica_count {
-        returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
-    }
-    Ok(Resp::Integer(returned_replicas as i32))
-}
+// async fn process_wait(ctx: &Context, replica_count: usize) -> CommandResult {
+//     let mut returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
+//     while returned_replicas < replica_count {
+//         returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
+//     }
+//     Ok(Resp::Integer(returned_replicas as i32))
+// }
 fn getack() -> Resp {
     let output = vec![
         Resp::BulkString(Bytes::from_static(b"REPLCONF")),

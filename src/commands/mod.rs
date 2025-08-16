@@ -183,7 +183,7 @@ impl RedisCommand {
             Info(_) => unreachable!(),
             Psync(_) => unreachable!(),
         };
-        if ctx.ctx_info.is_master && self.is_write_command() {
+        if ctx.ctx_info.is_master && (self.is_write_command()) {
             write_to_replicas(ctx, self.clone().into()).await?;
         }
         if !ctx.ctx_info.is_master && ctx.ctx_info.stream_from_master {
@@ -206,6 +206,7 @@ impl RedisCommand {
                 }
             }
             Err(err) => {
+                eprintln!("ran into error: err={err}");
                 if ctx.ctx_info.is_master {
                     ctx.out
                         .write()

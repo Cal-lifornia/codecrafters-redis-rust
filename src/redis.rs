@@ -141,7 +141,7 @@ async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
     let mut input = buf;
     while let Ok((Resp::Array(contents), leftovers)) = resp::parse(input) {
         let cmd = RedisCommand::try_from(contents)?;
-        // println!("got cmd; {cmd:#?}");
+        println!("got cmd; {cmd:#?}");
         match cmd.run_command_full(ctx).await {
             Ok(_) => {}
             Err(err) => {

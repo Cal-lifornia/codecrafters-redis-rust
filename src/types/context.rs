@@ -28,8 +28,8 @@ pub struct CtxInfo {
     // Is the stream being read using the master connection?
     // For updating offset specifically
     pub stream_from_master: bool,
-    pub waiting: Arc<RwLock<bool>>,
-    pub returned_replicas: Arc<RwLock<usize>>,
+    // pub waiting: Arc<RwLock<bool>>,
+    // pub returned_replicas: Arc<RwLock<usize>>,
 }
 
 impl CtxInfo {
@@ -37,8 +37,8 @@ impl CtxInfo {
         Self {
             is_master,
             stream_from_master,
-            waiting: Arc::new(RwLock::new(false)),
-            returned_replicas: Arc::new(RwLock::new(0)),
+            // waiting: Arc::new(RwLock::new(false)),
+            // returned_replicas: Arc::new(RwLock::new(0)),
         }
     }
 }
