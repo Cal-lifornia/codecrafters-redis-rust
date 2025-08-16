@@ -26,15 +26,15 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
                 return Ok(getack());
             }
         }
-        if args[0].to_ascii_lowercase().as_slice() == b"ack" && ctx.ctx_info.is_master {
-            let mut offset = String::new();
-            args[1]
-                .clone()
-                .reader()
-                .read_to_string(&mut offset)
-                .unwrap();
-            ctx.app_info.write().await.replication.offset = offset.parse::<i32>()?;
-        }
+        // if args[0].to_ascii_lowercase().as_slice() == b"ack" && ctx.ctx_info.is_master {
+        //     let mut offset = String::new();
+        //     args[1]
+        //         .clone()
+        //         .reader()
+        //         .read_to_string(&mut offset)
+        //         .unwrap();
+        //     ctx.app_info.write().await.replication.offset = offset.parse::<i32>()?;
+        // }
         // else {
         //     let current_offset = ctx.app_info.read().await.replication.offset;
         //     let mut buf = String::new();
