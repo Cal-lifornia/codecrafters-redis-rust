@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -6,6 +6,7 @@ use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     sync::{Mutex, RwLock},
+    time::Instant,
 };
 
 use crate::{
@@ -107,7 +108,11 @@ pub async fn handle_stream(
     let writer = Arc::new(RwLock::new(writer));
     loop {
         let n = match reader.read(&mut buf).await {
-            Ok(0) => return Ok(()),
+            Ok(0) => {
+                tokio::time::sleep_until(Instant::now() + Duration::from_millis(10)).await;
+                continue;
+            }
+
             Ok(n) => n,
             Err(err) => {
                 eprintln!("failed to read from socket; err = {err:?}");
@@ -133,8 +138,11 @@ pub async fn handle_stream(
 }
 
 async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
-    if let (Resp::Array(contents), _) = resp::parse(buf)? {
+    if let (Resp::Array(contents), leftovers) = resp::parse(buf)? {
+        // let leftover_resp = resp::parse(leftovers)?;
+        println!("leftovers {leftovers:#?}");
         let cmd = RedisCommand::try_from(contents)?;
+        println!("got cmd; {cmd:#?}");
         match cmd.run_command_full(ctx).await {
             Ok(_) => return Ok(()),
             Err(err) => {
