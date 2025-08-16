@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use thiserror::Error;
@@ -111,6 +111,7 @@ pub async fn handle_stream(
     loop {
         let n = match reader.read(&mut buf).await {
             Ok(0) => {
+                tokio::time::sleep(Duration::from_millis(10)).await;
                 continue;
             }
             Ok(n) => n,

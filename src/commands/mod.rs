@@ -94,6 +94,10 @@ impl RedisCommand {
 
     pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
         use RedisCommand::*;
+        if !ctx.ctx_info.is_master && ctx.ctx_info.stream_from_master {
+            let offset = Resp::from(self.clone()).to_bytes().len() as i32;
+            ctx.app_info.write().await.replication.offset += offset;
+        }
         match self {
             Exec => {
                 match exec_cmd(ctx).await {
@@ -140,6 +144,10 @@ impl RedisCommand {
                 psync_cmd(ctx, items).await?;
                 return Ok(());
             }
+            Replconf(ref items) => {
+                replconf_cmd(ctx, items).await?;
+                return Ok(());
+            }
             _ => {
                 if ctx.ctx_info.is_master {
                     let queued = ctx.queued.lock().await;
@@ -175,20 +183,16 @@ impl RedisCommand {
             Xadd(ref items) => xadd_cmd(ctx, items).await,
             Xrange(ref items) => xrange_cmd(ctx, items).await,
             Xread(ref items) => xread_cmd(ctx, items).await,
-            Replconf(ref items) => replconf_cmd(ctx, items).await,
             Multi => multi_cmd(ctx).await,
             Wait(ref items) => wait_cmd(ctx, items).await,
             Exec => unreachable!(),
             Discard => unreachable!(),
             Info(_) => unreachable!(),
             Psync(_) => unreachable!(),
+            Replconf(_) => unreachable!(),
         };
         if ctx.ctx_info.is_master && (self.is_write_command()) {
             write_to_replicas(ctx, self.clone().into()).await?;
-        }
-        if !ctx.ctx_info.is_master && ctx.ctx_info.stream_from_master {
-            let offset = Resp::from(self.clone()).to_bytes().len() as i32;
-            ctx.app_info.write().await.replication.offset += offset;
         }
 
         match result {

@@ -30,11 +30,12 @@ pub async fn read_host_connection(
     let _ = reader.read_line(&mut full_resync).await;
 
     {
-        let offset: Vec<i32> = full_resync
-            .split_whitespace()
-            .filter_map(|val| val.parse::<i32>().ok())
-            .collect();
-        info.write().await.replication.offset = offset[0];
+        // let offset: Vec<i32> = full_resync
+        //     .split_whitespace()
+        //     .filter_map(|val| val.parse::<i32>().ok())
+        //     .collect();
+        drop(full_resync);
+        info.write().await.replication.offset = 0;
     }
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;
