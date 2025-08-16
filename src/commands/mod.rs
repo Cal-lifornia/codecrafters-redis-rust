@@ -135,7 +135,7 @@ impl RedisCommand {
                 psync_cmd(ctx, items).await?;
             }
             _ => {
-                if ctx.is_master {
+                if ctx.ctx_info.is_master {
                     let queued = ctx.queued.lock().await;
                     if *queued {
                         let mut queue_list = ctx.queue_list.lock().await;
@@ -173,15 +173,17 @@ impl RedisCommand {
             Multi => multi_cmd(ctx).await,
             _ => unreachable!(),
         };
-        if ctx.is_master && self.is_write_command() {
+        if ctx.ctx_info.is_master && self.is_write_command() {
             write_to_replicas(ctx, self.clone().into()).await?;
+        }
+        if !ctx.ctx_info.is_master && ctx.ctx_info.stream_from_master {
+            let offset = Resp::from(self.clone()).to_bytes().len() as i32;
+            ctx.app_info.write().await.replication.offset += offset;
         }
 
         match result {
             Ok(output) => {
-                if (ctx.is_master && self.clone().is_write_command())
-                    || !self.clone().is_write_command()
-                {
+                if (ctx.ctx_info.is_master && self.is_write_command()) || !self.is_write_command() {
                     ctx.out
                         .write()
                         .await
@@ -191,7 +193,7 @@ impl RedisCommand {
                 }
             }
             Err(err) => {
-                if ctx.is_master {
+                if ctx.ctx_info.is_master {
                     ctx.out
                         .write()
                         .await

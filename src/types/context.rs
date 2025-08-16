@@ -16,9 +16,18 @@ pub struct Context {
     pub db: Arc<RedisDatabase>,
     pub queued: Arc<Mutex<bool>>,
     pub queue_list: CommandQueueList,
-    pub info: Arc<RwLock<RedisInfo>>,
+    pub app_info: Arc<RwLock<RedisInfo>>,
     pub replicas: Arc<RwLock<Vec<Replica>>>,
+    pub ctx_info: CtxInfo,
+}
+
+#[derive(Clone, Copy)]
+pub struct CtxInfo {
+    // Is the current running app a master redis server or slave
     pub is_master: bool,
+    // Is the stream being read using the master connection?
+    // For updating offset specifically
+    pub stream_from_master: bool,
 }
 
 pub struct Replica {
@@ -31,18 +40,18 @@ impl Context {
         db: Arc<RedisDatabase>,
         queued: Arc<Mutex<bool>>,
         queue_list: CommandQueueList,
-        info: Arc<RwLock<RedisInfo>>,
-        is_master: bool,
+        app_info: Arc<RwLock<RedisInfo>>,
         replicas: Arc<RwLock<Vec<Replica>>>,
+        ctx_info: CtxInfo,
     ) -> Self {
         Self {
             out,
             db,
             queued,
             queue_list,
-            info,
+            app_info,
             replicas,
-            is_master,
+            ctx_info,
         }
     }
 

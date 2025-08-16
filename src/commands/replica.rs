@@ -12,8 +12,8 @@ use super::CommandError;
 pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() == 2 {
         if args[0].to_ascii_lowercase().as_slice() == b"getack" {
-            if !ctx.is_master {
-                let offset = ctx.info.read().await.replication.offset;
+            if !ctx.ctx_info.is_master {
+                let offset = ctx.app_info.read().await.replication.offset;
                 let output = vec![
                     Resp::BulkString(Bytes::from_static(b"REPLCONF")),
                     Resp::BulkString(Bytes::from_static(b"ACK")),
@@ -36,7 +36,7 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
     });
     if args.len() > 1 {
         let (repl_id, offset) = {
-            let info = ctx.info.read().await;
+            let info = ctx.app_info.read().await;
             (
                 info.replication.replication_id.clone(),
                 info.replication.offset,

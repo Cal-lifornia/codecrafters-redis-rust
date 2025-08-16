@@ -13,7 +13,7 @@ use crate::{
     db::RedisDatabase,
     replication::{connect_to_host, read_host_connection},
     resp::{self, Resp, RespError},
-    types::{Context, RedisInfo, Replica, ReplicationInfo},
+    types::{Context, CtxInfo, RedisInfo, Replica, ReplicationInfo},
 };
 
 pub async fn init(
@@ -69,7 +69,10 @@ pub async fn init(
                 Arc::new(Mutex::new(vec![])),
                 info_clone.clone(),
                 replicas_clone.clone(),
-                is_master,
+                CtxInfo {
+                    is_master,
+                    stream_from_master: true,
+                },
             )
             .await
         });
@@ -89,7 +92,10 @@ pub async fn init(
                 queue_list,
                 info_clone,
                 replicas_clone.clone(),
-                is_master,
+                CtxInfo {
+                    is_master,
+                    stream_from_master: false,
+                },
             )
             .await
         });
@@ -103,7 +109,7 @@ pub async fn handle_stream(
     queue_list: CommandQueueList,
     info: Arc<RwLock<RedisInfo>>,
     replicas: Arc<RwLock<Vec<Replica>>>,
-    master: bool,
+    ctx_info: CtxInfo,
 ) -> Result<(), RedisError> {
     let mut buf = [0; 1024];
     let (mut reader, writer) = stream.into_split();
@@ -126,8 +132,8 @@ pub async fn handle_stream(
             queued.clone(),
             queue_list.clone(),
             info.clone(),
-            master,
             replicas.clone(),
+            ctx_info,
         );
 
         if let Err(err) = parse_input(&buf[0..n], &ctx).await {

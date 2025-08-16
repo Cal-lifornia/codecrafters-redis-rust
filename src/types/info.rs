@@ -1,5 +1,3 @@
-
-
 #[derive(Debug, Clone)]
 pub struct RedisInfo {
     pub port: String,
