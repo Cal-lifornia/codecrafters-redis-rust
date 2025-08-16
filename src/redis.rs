@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
@@ -6,7 +6,6 @@ use tokio::{
     io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     sync::{Mutex, RwLock},
-    time::Instant,
 };
 
 use crate::{
@@ -51,34 +50,37 @@ pub async fn init(
     let replicas = Arc::new(RwLock::new(vec![]));
 
     if role == "slave" {
-        match connect_to_host(host_addr, info.clone()).await {
-            Ok(connection) => {
-                read_host_connection(
-                    connection,
-                    db.clone(),
-                    Arc::new(Mutex::new(false)),
-                    Arc::new(Mutex::new(vec![])),
-                    arc_info.clone(),
-                    replicas.clone(),
-                    is_master,
-                )
-                .await
-            }
+        let connection = match connect_to_host(host_addr, info.clone()).await {
+            Ok(connection) => connection,
             Err(err) => {
                 eprintln!("failed to connect to master; err = {err:?}");
                 return Err(err.into());
             }
-        }
+        };
+        let stream = read_host_connection(connection, arc_info.clone()).await;
+        let db_clone = db.clone();
+        let info_clone = Arc::clone(&arc_info);
+        let replicas_clone = replicas.clone();
+        tokio::spawn(async move {
+            handle_stream(
+                stream,
+                db_clone.clone(),
+                Arc::new(Mutex::new(false)),
+                Arc::new(Mutex::new(vec![])),
+                info_clone.clone(),
+                replicas_clone.clone(),
+                is_master,
+            )
+            .await
+        });
     }
-
     loop {
         let (socket, _) = listener.accept().await?;
-        let info_clone = Arc::clone(&arc_info);
         let db_clone = Arc::clone(&db);
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
+        let info_clone = Arc::clone(&arc_info);
         let replicas_clone = replicas.clone();
-
         tokio::spawn(async move {
             handle_stream(
                 socket,
@@ -139,7 +141,7 @@ async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
     let mut input = buf;
     while let Ok((Resp::Array(contents), leftovers)) = resp::parse(input) {
         let cmd = RedisCommand::try_from(contents)?;
-        println!("got cmd; {cmd:#?}");
+        // println!("got cmd; {cmd:#?}");
         match cmd.run_command_full(ctx).await {
             Ok(_) => {}
             Err(err) => {

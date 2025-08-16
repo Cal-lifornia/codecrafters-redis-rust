@@ -1,22 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use bytes::{Bytes, BytesMut};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, BufReader},
     net::TcpStream,
-    sync::{Mutex, RwLock},
+    sync::RwLock,
 };
 
-use crate::{
-    commands::CommandQueueList,
-    db::RedisDatabase,
-    mod_flat,
-    redis::handle_stream,
-    resp::Resp,
-    types::{Context, RedisInfo, Replica},
-};
+use crate::{mod_flat, types::RedisInfo};
 
 mod_flat!(handshake);
 
@@ -30,13 +22,8 @@ pub async fn connect_to_host(host_address: String, info: RedisInfo) -> Result<Tc
 
 pub async fn read_host_connection(
     connection: TcpStream,
-    db: Arc<RedisDatabase>,
-    queued: Arc<Mutex<bool>>,
-    queue_list: CommandQueueList,
     info: Arc<RwLock<RedisInfo>>,
-    replicas: Arc<RwLock<Vec<Replica>>>,
-    is_replica: bool,
-) {
+) -> TcpStream {
     let mut reader = BufReader::new(connection);
 
     let mut full_resync = String::new();
@@ -48,7 +35,6 @@ pub async fn read_host_connection(
             .filter_map(|val| val.parse::<i32>().ok())
             .collect();
         info.write().await.replication.offset = offset[0];
-        println!("offset {}", info.read().await.replication.offset);
     }
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;
@@ -64,20 +50,7 @@ pub async fn read_host_connection(
     // buf.resize(size, 0);
     // let _ = reader.read_exact(&mut buf).await;
     // println!("slave: RDB: {buf:?}");
-    let stream = reader.into_inner();
-
-    tokio::spawn(async move {
-        handle_stream(
-            stream,
-            db,
-            queued.clone(),
-            queue_list.clone(),
-            info.clone(),
-            replicas.clone(),
-            is_replica,
-        )
-        .await
-    });
+    reader.into_inner()
 }
 
 #[derive(Debug, Error)]

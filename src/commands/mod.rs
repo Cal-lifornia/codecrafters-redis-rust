@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::{io::AsyncWriteExt, sync::Mutex};
 
-use crate::{mod_flat, resp::Resp, types::Replica};
+use crate::{mod_flat, resp::Resp};
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -131,11 +131,6 @@ impl RedisCommand {
                 ctx.out.write().await.write_all(&output.to_bytes()).await?;
                 return Ok(());
             }
-            Replconf(ref items) => {
-                let output = replconf_cmd(ctx, items).await?;
-                ctx.out.write().await.write_all(&output.to_bytes()).await?;
-                return Ok(());
-            }
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
             }
@@ -174,6 +169,7 @@ impl RedisCommand {
             Xadd(ref items) => xadd_cmd(ctx, items).await,
             Xrange(ref items) => xrange_cmd(ctx, items).await,
             Xread(ref items) => xread_cmd(ctx, items).await,
+            Replconf(ref items) => replconf_cmd(ctx, items).await,
             Multi => multi_cmd(ctx).await,
             _ => unreachable!(),
         };

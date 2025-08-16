@@ -11,14 +11,18 @@ use super::CommandError;
 
 pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() == 2 {
-        if !ctx.is_master && args[0].to_ascii_lowercase().as_slice() == b"getack" {
-            let offset = ctx.info.read().await.replication.offset;
-            let output = vec![
-                Resp::BulkString(Bytes::from_static(b"REPLCONF")),
-                Resp::BulkString(Bytes::from_static(b"ACK")),
-                Resp::BulkString(Bytes::from(offset.to_string())),
-            ];
-            return Ok(Resp::Array(output));
+        if args[0].to_ascii_lowercase().as_slice() == b"getack" {
+            if !ctx.is_master {
+                let offset = ctx.info.read().await.replication.offset;
+                let output = vec![
+                    Resp::BulkString(Bytes::from_static(b"REPLCONF")),
+                    Resp::BulkString(Bytes::from_static(b"ACK")),
+                    Resp::BulkString(Bytes::from(offset.to_string())),
+                ];
+                return Ok(Resp::Array(output));
+            } else {
+                return Ok(getack());
+            }
         }
         Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
     } else {
@@ -58,14 +62,14 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
         Err(CommandError::WrongNumArgs("psync".into()))
     }
 }
-// pub fn getack() -> Resp {
-//     let output = vec![
-//         Resp::BulkString(Bytes::from_static(b"REPLCONF")),
-//         Resp::BulkString(Bytes::from_static(b"GETACK")),
-//         Resp::BulkString(Bytes::from_static(b"*")),
-//     ];
-//     Resp::Array(output)
-// }
+pub fn getack() -> Resp {
+    let output = vec![
+        Resp::BulkString(Bytes::from_static(b"REPLCONF")),
+        Resp::BulkString(Bytes::from_static(b"GETACK")),
+        Resp::BulkString(Bytes::from_static(b"*")),
+    ];
+    Resp::Array(output)
+}
 
 pub async fn write_to_replicas(ctx: &Context, input: Resp) -> Result<(), CommandError> {
     for Replica { replica } in ctx.replicas.write().await.iter_mut() {
