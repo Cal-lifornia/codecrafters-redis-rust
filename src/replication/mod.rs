@@ -52,17 +52,18 @@ pub async fn read_host_connection(
     }
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;
-    println!("file_size: {file_size}");
-    let size = file_size
-        .trim_start_matches("$")
-        .trim_end()
-        .parse::<usize>()
-        .expect("should have a valid size");
-    println!("slave: read RDB with size {size}");
-    let mut buf = BytesMut::with_capacity(size);
-    buf.resize(size, 0);
-    let _ = reader.read_exact(&mut buf).await;
-    println!("slave: RDB: {buf:?}");
+    drop(file_size);
+    // println!("file_size: {file_size}");
+    // let size = file_size
+    //     .trim_start_matches("$")
+    //     .trim_end()
+    //     .parse::<usize>()
+    //     .expect("should have a valid size");
+    // println!("slave: read RDB with size {size}");
+    // let mut buf = BytesMut::with_capacity(size);
+    // buf.resize(size, 0);
+    // let _ = reader.read_exact(&mut buf).await;
+    // println!("slave: RDB: {buf:?}");
     let stream = reader.into_inner();
 
     tokio::spawn(async move {
