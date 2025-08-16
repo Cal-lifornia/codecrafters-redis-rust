@@ -48,6 +48,8 @@ pub async fn init(
     };
     let arc_info = Arc::new(RwLock::new(info.clone()));
     let replicas = Arc::new(RwLock::new(vec![]));
+    let waiting = Arc::new(RwLock::new(false));
+    let returned_replicas = Arc::new(RwLock::new(0));
 
     if role == "slave" {
         let connection = match get_host_connection(host_addr).await {
@@ -60,6 +62,8 @@ pub async fn init(
         let db_clone = db.clone();
         let info_clone = Arc::clone(&arc_info);
         let replicas_clone = replicas.clone();
+        let waiting_clone = waiting.clone();
+        let returned_replicas_clone = returned_replicas.clone();
         tokio::spawn(async move {
             handle_stream(
                 connection,
@@ -68,7 +72,7 @@ pub async fn init(
                 Arc::new(Mutex::new(vec![])),
                 info_clone.clone(),
                 replicas_clone.clone(),
-                CtxInfo::new(is_master, true),
+                CtxInfo::new(is_master, true, waiting_clone, returned_replicas_clone),
             )
             .await
         });
@@ -79,6 +83,8 @@ pub async fn init(
         let queue_list = Arc::new(Mutex::new(vec![]));
         let queued = Arc::new(Mutex::new(false));
         let info_clone = Arc::clone(&arc_info);
+        let waiting_clone = waiting.clone();
+        let returned_replicas_clone = returned_replicas.clone();
         let replicas_clone = replicas.clone();
         tokio::spawn(async move {
             handle_stream(
@@ -88,7 +94,7 @@ pub async fn init(
                 queue_list,
                 info_clone,
                 replicas_clone.clone(),
-                CtxInfo::new(is_master, false),
+                CtxInfo::new(is_master, false, waiting_clone, returned_replicas_clone),
             )
             .await
         });

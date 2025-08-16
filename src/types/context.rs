@@ -33,12 +33,17 @@ pub struct CtxInfo {
 }
 
 impl CtxInfo {
-    pub fn new(is_master: bool, stream_from_master: bool) -> Self {
+    pub fn new(
+        is_master: bool,
+        stream_from_master: bool,
+        waiting: Arc<RwLock<bool>>,
+        returned_replicas: Arc<RwLock<usize>>,
+    ) -> Self {
         Self {
             is_master,
             stream_from_master,
-            waiting: Arc::new(RwLock::new(false)),
-            returned_replicas: Arc::new(RwLock::new(0)),
+            waiting,
+            returned_replicas,
         }
     }
 }

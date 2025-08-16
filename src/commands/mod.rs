@@ -56,6 +56,8 @@ pub enum CommandError {
     IOError(#[from] std::io::Error),
     #[error("{0}")]
     EntryParseError(#[from] types::EntryIdParseError),
+    #[error("ignore")]
+    Ignore,
     #[error("{0}")]
     Custom(String),
 }
@@ -175,7 +177,11 @@ impl RedisCommand {
             Xadd(ref items) => xadd_cmd(ctx, items).await,
             Xrange(ref items) => xrange_cmd(ctx, items).await,
             Xread(ref items) => xread_cmd(ctx, items).await,
-            Replconf(ref items) => replconf_cmd(ctx, items).await,
+            Replconf(ref items) => match replconf_cmd(ctx, items).await {
+                Ok(res) => Ok(res),
+                Err(CommandError::Ignore) => return Ok(()),
+                Err(err) => Err(err),
+            },
             Multi => multi_cmd(ctx).await,
             Wait(ref items) => wait_cmd(ctx, items).await,
             Exec => unreachable!(),
