@@ -52,11 +52,30 @@ pub async fn handshake(socket: &mut TcpStream, info: RedisInfo) -> Result<()> {
             .to_bytes(),
         )
         .await?;
+    let mut buf = [0; 1024];
+    let n = match socket.read(&mut buf).await {
+        Ok(0) => {
+            bail!("expected response")
+        }
+        Ok(n) => n,
+        Err(err) => return Err(anyhow!(err)),
+    };
+
+    let response = match resp::parse(&buf[0..n]) {
+        Ok((response, _)) => response,
+        Err(err) => return Err(anyhow!(err)),
+    };
+
+    if let Resp::SimpleString(_) = response {
+        println!("got")
+    } else {
+        bail!("incorrect format")
+    }
 
     Ok(())
 }
 
-async fn expect_simple_string(socket: &mut TcpStream, expecting: &str) -> Result<()> {
+pub async fn expect_simple_string(socket: &mut TcpStream, expecting: &str) -> Result<()> {
     let mut buf = [0; 1024];
     let n = match socket.read(&mut buf).await {
         Ok(0) => {
@@ -75,6 +94,7 @@ async fn expect_simple_string(socket: &mut TcpStream, expecting: &str) -> Result
         if res != expecting {
             bail!("expected {expecting}")
         } else {
+            println!("got");
             Ok(())
         }
     } else {

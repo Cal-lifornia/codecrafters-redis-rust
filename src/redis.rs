@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Result;
 use thiserror::Error;
@@ -11,7 +11,7 @@ use tokio::{
 use crate::{
     commands::{CommandError, CommandQueueList, RedisCommand},
     db::RedisDatabase,
-    replication::{connect_to_host, read_host_connection},
+    replication::{get_host_connection, handle_handshake},
     resp::{self, Resp, RespError},
     types::{Context, CtxInfo, RedisInfo, Replica, ReplicationInfo},
 };
@@ -50,20 +50,19 @@ pub async fn init(
     let replicas = Arc::new(RwLock::new(vec![]));
 
     if role == "slave" {
-        let connection = match connect_to_host(host_addr, info.clone()).await {
+        let connection = match get_host_connection(host_addr).await {
             Ok(connection) => connection,
             Err(err) => {
                 eprintln!("failed to connect to master; err = {err:?}");
                 return Err(err.into());
             }
         };
-        let stream = read_host_connection(connection, arc_info.clone()).await;
         let db_clone = db.clone();
         let info_clone = Arc::clone(&arc_info);
         let replicas_clone = replicas.clone();
         tokio::spawn(async move {
             handle_stream(
-                stream,
+                connection,
                 db_clone.clone(),
                 Arc::new(Mutex::new(false)),
                 Arc::new(Mutex::new(vec![])),
@@ -97,7 +96,7 @@ pub async fn init(
 }
 
 pub async fn handle_stream(
-    stream: TcpStream,
+    mut stream: TcpStream,
     db: Arc<RedisDatabase>,
     queued: Arc<Mutex<bool>>,
     queue_list: CommandQueueList,
@@ -105,13 +104,17 @@ pub async fn handle_stream(
     replicas: Arc<RwLock<Vec<Replica>>>,
     ctx_info: CtxInfo,
 ) -> Result<(), RedisError> {
-    let mut buf = [0; 1024];
+    let mut buf = [0; 1024].to_vec();
+    if !ctx_info.is_master && ctx_info.stream_from_master {
+        let (con, leftovers) = handle_handshake(stream, info.clone()).await?;
+        buf = leftovers;
+        stream = con;
+    }
     let (mut reader, writer) = stream.into_split();
     let writer = Arc::new(RwLock::new(writer));
     loop {
         let n = match reader.read(&mut buf).await {
             Ok(0) => {
-                tokio::time::sleep(Duration::from_millis(10)).await;
                 continue;
             }
             Ok(n) => n,
@@ -120,6 +123,7 @@ pub async fn handle_stream(
                 return Err(err.into());
             }
         };
+        // println!("buf; {buf:#?}");
 
         let ctx = Context::new(
             writer.clone(),
