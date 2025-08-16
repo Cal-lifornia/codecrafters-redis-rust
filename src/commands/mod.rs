@@ -86,6 +86,13 @@ impl RedisCommand {
             Replconf(_) => false,
         }
     }
+    fn is_replconf_command(&self) -> bool {
+        if let RedisCommand::Replconf(_) = self {
+            true
+        } else {
+            false
+        }
+    }
 
     pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
         use RedisCommand::*;
@@ -184,6 +191,7 @@ impl RedisCommand {
         match result {
             Ok(output) => {
                 if (ctx.ctx_info.is_master && self.is_write_command())
+                    || self.is_replconf_command()
                     || (!self.is_write_command() && !ctx.ctx_info.stream_from_master)
                 {
                     ctx.out
