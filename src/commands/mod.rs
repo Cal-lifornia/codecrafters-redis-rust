@@ -60,7 +60,7 @@ pub enum CommandError {
 }
 
 impl RedisCommand {
-    pub fn is_write_command(self) -> bool {
+    pub fn is_write_command(&self) -> bool {
         use RedisCommand::*;
         match self {
             Ping => false,
@@ -89,15 +89,6 @@ impl RedisCommand {
 
     pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
         use RedisCommand::*;
-        if ctx.is_master && self.clone().is_write_command() {
-            for Replica { replica } in ctx.replicas.write().await.iter_mut() {
-                replica
-                    .write()
-                    .await
-                    .write_all(&Resp::from(self.clone()).to_bytes())
-                    .await?;
-            }
-        }
         match self {
             Exec => {
                 match exec_cmd(ctx).await {
@@ -147,18 +138,6 @@ impl RedisCommand {
             }
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
-                let output = vec![
-                    Resp::BulkString(Bytes::from_static(b"REPLCONF")),
-                    Resp::BulkString(Bytes::from_static(b"GETACK")),
-                    Resp::BulkString(Bytes::from_static(b"*")),
-                ];
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::Array(output).to_bytes())
-                    .await
-                    .unwrap();
-                return Ok(());
             }
             _ => {
                 if ctx.is_master {
@@ -198,6 +177,10 @@ impl RedisCommand {
             Multi => multi_cmd(ctx).await,
             _ => unreachable!(),
         };
+        if ctx.is_master && self.is_write_command() {
+            write_to_replicas(ctx, self.clone().into()).await?;
+        }
+
         match result {
             Ok(output) => {
                 if (ctx.is_master && self.clone().is_write_command())

@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     sync::{Mutex, RwLock},
 };
@@ -14,7 +14,8 @@ use crate::{
     db::RedisDatabase,
     mod_flat,
     redis::handle_stream,
-    types::{RedisInfo, Replica},
+    resp::Resp,
+    types::{Context, RedisInfo, Replica},
 };
 
 mod_flat!(handshake);
@@ -43,11 +44,11 @@ pub async fn read_host_connection(
 
     {
         let offset: Vec<i32> = full_resync
-            .trim_end_matches(['\r', '\n'])
             .split_whitespace()
             .filter_map(|val| val.parse::<i32>().ok())
             .collect();
         info.write().await.replication.offset = offset[0];
+        println!("offset {}", info.read().await.replication.offset);
     }
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;

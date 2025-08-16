@@ -14,8 +14,8 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
         if !ctx.is_master && args[0].to_ascii_lowercase().as_slice() == b"getack" {
             let offset = ctx.info.read().await.replication.offset;
             let output = vec![
-                Resp::BulkString(Bytes::from_static(b"replconf")),
-                Resp::BulkString(Bytes::from_static(b"ack")),
+                Resp::BulkString(Bytes::from_static(b"REPLCONF")),
+                Resp::BulkString(Bytes::from_static(b"ACK")),
                 Resp::BulkString(Bytes::from(offset.to_string())),
             ];
             return Ok(Resp::Array(output));
@@ -57,4 +57,23 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
     } else {
         Err(CommandError::WrongNumArgs("psync".into()))
     }
+}
+// pub fn getack() -> Resp {
+//     let output = vec![
+//         Resp::BulkString(Bytes::from_static(b"REPLCONF")),
+//         Resp::BulkString(Bytes::from_static(b"GETACK")),
+//         Resp::BulkString(Bytes::from_static(b"*")),
+//     ];
+//     Resp::Array(output)
+// }
+
+pub async fn write_to_replicas(ctx: &Context, input: Resp) -> Result<(), CommandError> {
+    for Replica { replica } in ctx.replicas.write().await.iter_mut() {
+        replica
+            .write()
+            .await
+            .write_all(&input.clone().to_bytes())
+            .await?;
+    }
+    Ok(())
 }

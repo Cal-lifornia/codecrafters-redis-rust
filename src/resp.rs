@@ -128,6 +128,9 @@ impl From<DatabaseStreamEntry> for Resp {
 }
 
 pub fn parse(data: &[u8]) -> RespResult {
+    if data.is_empty() {
+        return Err(RespError::NotEnoughBytes);
+    }
     match data[0] {
         b'+' => parse_simple_string(&data[1..]),
         b'-' => parse_simple_error(&data[1..]),

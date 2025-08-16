@@ -109,10 +109,8 @@ pub async fn handle_stream(
     loop {
         let n = match reader.read(&mut buf).await {
             Ok(0) => {
-                tokio::time::sleep_until(Instant::now() + Duration::from_millis(10)).await;
                 continue;
             }
-
             Ok(n) => n,
             Err(err) => {
                 eprintln!("failed to read from socket; err = {err:?}");
@@ -138,18 +136,17 @@ pub async fn handle_stream(
 }
 
 async fn parse_input(buf: &[u8], ctx: &Context) -> Result<(), RedisError> {
-    if let (Resp::Array(contents), leftovers) = resp::parse(buf)? {
-        // let leftover_resp = resp::parse(leftovers)?;
-        println!("leftovers {leftovers:#?}");
+    let mut input = buf;
+    while let Ok((Resp::Array(contents), leftovers)) = resp::parse(input) {
         let cmd = RedisCommand::try_from(contents)?;
         println!("got cmd; {cmd:#?}");
         match cmd.run_command_full(ctx).await {
-            Ok(_) => return Ok(()),
+            Ok(_) => {}
             Err(err) => {
                 eprintln!("ERR {err}");
-                return Ok(());
             }
         }
+        input = leftovers;
     }
     Ok(())
 }
