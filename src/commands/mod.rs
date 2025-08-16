@@ -138,6 +138,7 @@ impl RedisCommand {
             }
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
+                return Ok(());
             }
             _ => {
                 if ctx.ctx_info.is_master {
