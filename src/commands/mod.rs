@@ -148,8 +148,8 @@ impl RedisCommand {
             Psync(ref items) => {
                 psync_cmd(ctx, items).await?;
                 let output = vec![
-                    Resp::BulkString(Bytes::from_static(b"replconf")),
-                    Resp::BulkString(Bytes::from_static(b"getack")),
+                    Resp::BulkString(Bytes::from_static(b"REPLCONF")),
+                    Resp::BulkString(Bytes::from_static(b"GETACK")),
                     Resp::BulkString(Bytes::from_static(b"*")),
                 ];
                 ctx.out
