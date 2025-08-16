@@ -4,22 +4,12 @@ use anyhow::Result;
 use bytes::{Bytes, BytesMut};
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufStream},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufStream},
     net::TcpStream,
     sync::RwLock,
 };
 
-use crate::{mod_flat, resp::Resp, types::RedisInfo};
-
-mod_flat!(handshake);
-
-pub async fn connect_to_host(host_address: String, info: RedisInfo) -> Result<TcpStream> {
-    let mut connection = TcpStream::connect(host_address).await?;
-
-    handshake(&mut connection, info).await?;
-
-    Ok(connection)
-}
+use crate::{resp::Resp, types::RedisInfo};
 
 pub async fn get_host_connection(host_address: String) -> Result<TcpStream, std::io::Error> {
     let connection = TcpStream::connect(host_address).await?;
@@ -27,39 +17,6 @@ pub async fn get_host_connection(host_address: String) -> Result<TcpStream, std:
     Ok(connection)
 }
 
-pub async fn read_host_connection(
-    connection: TcpStream,
-    info: Arc<RwLock<RedisInfo>>,
-) -> TcpStream {
-    let mut reader = BufReader::new(connection);
-
-    let mut full_resync = String::new();
-    let _ = reader.read_line(&mut full_resync).await;
-
-    {
-        // let offset: Vec<i32> = full_resync
-        //     .split_whitespace()
-        //     .filter_map(|val| val.parse::<i32>().ok())
-        //     .collect();
-        drop(full_resync);
-        info.write().await.replication.offset = 0;
-    }
-    let mut file_size = String::new();
-    let _ = reader.read_line(&mut file_size).await;
-    println!("file_size: {file_size}");
-    let size = file_size
-        .trim_start_matches("$")
-        .trim_end()
-        .parse::<usize>()
-        .expect("should have a valid size");
-    println!("slave: read RDB with size {size}");
-    let mut buf = BytesMut::with_capacity(size);
-    buf.resize(size, 0);
-    let _ = reader.read_exact(&mut buf).await;
-    println!("slave: RDB: {buf:?}");
-    println!("leftovers; {:#?}", reader.buffer());
-    reader.into_inner()
-}
 pub async fn handle_handshake(
     connection: TcpStream,
     info: Arc<RwLock<RedisInfo>>,
@@ -70,7 +27,11 @@ pub async fn handle_handshake(
     streamer
         .write_all(&Resp::bulk_string_array(&[Bytes::from_static(b"PING")]).to_bytes())
         .await?;
-    let _ = streamer.read_line(&mut buf).await;
+    streamer.flush().await?;
+
+    let _ = streamer.read_line(&mut buf).await?;
+    streamer.flush().await?;
+    // println!("first buf {buf}");
     buf.clear();
 
     streamer
@@ -83,8 +44,10 @@ pub async fn handle_handshake(
             .to_bytes(),
         )
         .await?;
+    streamer.flush().await?;
 
     let _ = streamer.read_line(&mut buf).await;
+    // println!("second buf {buf}");
     buf.clear();
 
     streamer
@@ -97,8 +60,11 @@ pub async fn handle_handshake(
             .to_bytes(),
         )
         .await?;
+    streamer.flush().await?;
 
     let _ = streamer.read_line(&mut buf).await;
+
+    // println!("third buf {buf}");
     buf.clear();
 
     streamer
@@ -111,28 +77,45 @@ pub async fn handle_handshake(
             .to_bytes(),
         )
         .await?;
+    streamer.flush().await?;
 
     let _ = streamer.read_line(&mut buf).await;
+    {
+        let offset: Vec<i32> = buf
+            .split_whitespace()
+            .filter_map(|val| val.parse::<i32>().ok())
+            .collect();
+        info.write().await.replication.offset = offset[0];
+    }
     buf.clear();
 
     let mut file_size = String::new();
     let _ = streamer.read_line(&mut file_size).await;
-    println!("file_size: {file_size}");
+    // println!("file_size: {file_size}");
     let size = file_size
         .trim_start_matches("$")
         .trim_end()
         .parse::<usize>()
         .expect("should have a valid size");
-    println!("slave: read RDB with size {size}");
+    // println!("slave: read RDB with size {size}");
     let mut buf = BytesMut::with_capacity(size);
     buf.resize(size, 0);
-    let _ = streamer.read_exact(&mut buf).await;
-    println!("slave: RDB: {buf:?}");
-    // let leftovers = streamer.buffer().to_vec();
+    let _ = streamer.read_exact(&mut buf).await?;
+    // println!("slave: RDB: {buf:?}");
 
-    let mut leftovers = vec![];
-    let _ = streamer.read_to_end(&mut leftovers).await;
-    println!("leftovers; {leftovers:#?}");
+    let leftovers = streamer.fill_buf().await.expect("expect buf").to_vec();
+    println!(
+        "leftovers {:#?}",
+        leftovers.iter().map(|val| *val as char).collect::<String>()
+    );
+
+    // let mut leftovers = [0u8; 1024].to_vec();
+    // let n = match streamer.read(&mut leftovers).await {
+    //     Ok(0) => 0,
+    //     Ok(n) => n,
+    //     Err(err) => return Err(err),
+    // };
+    // println!("leftovers; {leftovers:#?}");
     Ok((streamer.into_inner(), leftovers))
 }
 

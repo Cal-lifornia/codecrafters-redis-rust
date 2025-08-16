@@ -1,5 +1,7 @@
-use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::AsyncWriteExt;
+use std::{io::Read, time::Duration};
+
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio::{io::AsyncWriteExt, time::timeout};
 
 use crate::{
     commands::CommandResult,

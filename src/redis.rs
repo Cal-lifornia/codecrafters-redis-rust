@@ -96,7 +96,7 @@ pub async fn init(
 }
 
 pub async fn handle_stream(
-    mut stream: TcpStream,
+    stream: TcpStream,
     db: Arc<RedisDatabase>,
     queued: Arc<Mutex<bool>>,
     queue_list: CommandQueueList,
@@ -105,13 +105,25 @@ pub async fn handle_stream(
     ctx_info: CtxInfo,
 ) -> Result<(), RedisError> {
     let mut buf = [0; 1024].to_vec();
-    if !ctx_info.is_master && ctx_info.stream_from_master {
-        let (con, leftovers) = handle_handshake(stream, info.clone()).await?;
-        buf = leftovers;
-        stream = con;
-    }
+    let (stream, leftovers) = if !ctx_info.is_master && ctx_info.stream_from_master {
+        handle_handshake(stream, info.clone()).await?
+    } else {
+        (stream, vec![])
+    };
     let (mut reader, writer) = stream.into_split();
     let writer = Arc::new(RwLock::new(writer));
+    let ctx = Context::new(
+        writer.clone(),
+        db.clone(),
+        queued.clone(),
+        queue_list.clone(),
+        info.clone(),
+        replicas.clone(),
+        ctx_info.clone(),
+    );
+    if !leftovers.is_empty() {
+        parse_input(&leftovers, &ctx).await?;
+    }
     loop {
         let n = match reader.read(&mut buf).await {
             Ok(0) => {
@@ -124,16 +136,6 @@ pub async fn handle_stream(
             }
         };
         // println!("buf; {buf:#?}");
-
-        let ctx = Context::new(
-            writer.clone(),
-            db.clone(),
-            queued.clone(),
-            queue_list.clone(),
-            info.clone(),
-            replicas.clone(),
-            ctx_info.clone(),
-        );
 
         if let Err(err) = parse_input(&buf[0..n], &ctx).await {
             eprintln!("ran into error: {err:?}");
