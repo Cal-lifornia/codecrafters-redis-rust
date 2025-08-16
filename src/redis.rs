@@ -69,10 +69,7 @@ pub async fn init(
                 Arc::new(Mutex::new(vec![])),
                 info_clone.clone(),
                 replicas_clone.clone(),
-                CtxInfo {
-                    is_master,
-                    stream_from_master: true,
-                },
+                CtxInfo::new(is_master, true),
             )
             .await
         });
@@ -92,10 +89,7 @@ pub async fn init(
                 queue_list,
                 info_clone,
                 replicas_clone.clone(),
-                CtxInfo {
-                    is_master,
-                    stream_from_master: false,
-                },
+                CtxInfo::new(is_master, false),
             )
             .await
         });
@@ -133,7 +127,7 @@ pub async fn handle_stream(
             queue_list.clone(),
             info.clone(),
             replicas.clone(),
-            ctx_info,
+            ctx_info.clone(),
         );
 
         if let Err(err) = parse_input(&buf[0..n], &ctx).await {

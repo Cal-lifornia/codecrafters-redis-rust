@@ -37,6 +37,7 @@ pub enum RedisCommand {
     Multi,
     Psync(Vec<Bytes>),
     Replconf(Vec<Bytes>),
+    Wait(Vec<Bytes>),
 }
 
 #[derive(Debug, Error)]
@@ -84,14 +85,11 @@ impl RedisCommand {
             Multi => false,
             Psync(_) => false,
             Replconf(_) => false,
+            Wait(_) => false,
         }
     }
     fn is_replconf_command(&self) -> bool {
-        if let RedisCommand::Replconf(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, RedisCommand::Replconf(_))
     }
 
     pub async fn run_command_full(self, ctx: &Context) -> Result<(), CommandError> {
@@ -178,7 +176,11 @@ impl RedisCommand {
             Xread(ref items) => xread_cmd(ctx, items).await,
             Replconf(ref items) => replconf_cmd(ctx, items).await,
             Multi => multi_cmd(ctx).await,
-            _ => unreachable!(),
+            Wait(ref items) => wait_cmd(ctx, items).await,
+            Exec => unreachable!(),
+            Discard => unreachable!(),
+            Info(_) => unreachable!(),
+            Psync(_) => unreachable!(),
         };
         if ctx.ctx_info.is_master && self.is_write_command() {
             write_to_replicas(ctx, self.clone().into()).await?;
@@ -268,6 +270,7 @@ impl TryFrom<Vec<Bytes>> for RedisCommand {
             b"multi" => Ok(Multi),
             b"psync" => Ok(Psync(value[1..].to_vec())),
             b"replconf" => Ok(Replconf(value[1..].to_vec())),
+            b"wait" => Ok(Wait(value[1..].to_vec())),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "command does not exist",
@@ -377,6 +380,10 @@ impl From<RedisCommand> for Resp {
             }
             Replconf(items) => {
                 output.push(Bytes::from_static(b"replconf"));
+                output.extend_from_slice(&items);
+            }
+            Wait(items) => {
+                output.push(Bytes::from_static(b"wait"));
                 output.extend_from_slice(&items);
             }
         }

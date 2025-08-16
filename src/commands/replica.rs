@@ -1,5 +1,7 @@
-use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::AsyncWriteExt;
+use std::{io::Read, time::Duration};
+
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio::{io::AsyncWriteExt, time::timeout};
 
 use crate::{
     commands::CommandResult,
@@ -22,6 +24,29 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
                 return Ok(Resp::Array(output));
             } else {
                 return Ok(getack());
+            }
+        }
+        if args[0].to_ascii_lowercase().as_slice() == b"ack" {
+            if !ctx.ctx_info.is_master {
+                let mut offset = String::new();
+                args[1]
+                    .clone()
+                    .reader()
+                    .read_to_string(&mut offset)
+                    .unwrap();
+                ctx.app_info.write().await.replication.offset = offset.parse::<i32>()?;
+            } else {
+                let current_offset = ctx.app_info.read().await.replication.offset;
+                let mut buf = String::new();
+                args[1].clone().reader().read_to_string(&mut buf)?;
+                let updated_offset = buf.parse::<i32>()?;
+                if updated_offset > current_offset {
+                    ctx.app_info.write().await.replication.offset = updated_offset;
+                }
+                let waiting = *ctx.ctx_info.waiting.read().await;
+                if (updated_offset >= current_offset) && waiting {
+                    *ctx.ctx_info.returned_replicas.write().await += 1;
+                }
             }
         }
         Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
@@ -62,7 +87,53 @@ pub async fn psync_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError
         Err(CommandError::WrongNumArgs("psync".into()))
     }
 }
-pub fn getack() -> Resp {
+
+pub async fn wait_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    if ctx.ctx_info.is_master && args.len() == 2 {
+        let mut buf = String::new();
+        args[0].clone().reader().read_to_string(&mut buf)?;
+        let replica_count = buf.parse::<usize>()?;
+        {
+            *ctx.ctx_info.waiting.write().await = true;
+        }
+        if replica_count == 0 {
+            return Ok(Resp::Integer(0));
+        }
+        buf.clear();
+        args[1].clone().reader().read_to_string(&mut buf)?;
+        let wait_time = buf.parse::<usize>()?;
+        write_to_replicas(ctx, getack()).await?;
+        if wait_time > 0 {
+            match timeout(
+                Duration::from_millis(wait_time as u64),
+                process_wait(ctx, replica_count),
+            )
+            .await
+            {
+                Ok(output) => output?,
+                Err(_) => {
+                    let returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
+                    *ctx.ctx_info.waiting.write().await = false;
+                    Resp::Integer(returned_replicas as i32)
+                }
+            }
+        } else {
+            let output = process_wait(ctx, replica_count).await?;
+            *ctx.ctx_info.waiting.write().await = false;
+            output
+        };
+    }
+    Err(CommandError::InvalidInput)
+}
+
+async fn process_wait(ctx: &Context, replica_count: usize) -> CommandResult {
+    let mut returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
+    while returned_replicas < replica_count {
+        returned_replicas = *ctx.ctx_info.returned_replicas.read().await;
+    }
+    Ok(Resp::Integer(returned_replicas as i32))
+}
+fn getack() -> Resp {
     let output = vec![
         Resp::BulkString(Bytes::from_static(b"REPLCONF")),
         Resp::BulkString(Bytes::from_static(b"GETACK")),

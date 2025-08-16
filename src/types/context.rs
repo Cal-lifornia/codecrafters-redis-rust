@@ -21,13 +21,26 @@ pub struct Context {
     pub ctx_info: CtxInfo,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CtxInfo {
     // Is the current running app a master redis server or slave
     pub is_master: bool,
     // Is the stream being read using the master connection?
     // For updating offset specifically
     pub stream_from_master: bool,
+    pub waiting: Arc<RwLock<bool>>,
+    pub returned_replicas: Arc<RwLock<usize>>,
+}
+
+impl CtxInfo {
+    pub fn new(is_master: bool, stream_from_master: bool) -> Self {
+        Self {
+            is_master,
+            stream_from_master,
+            waiting: Arc::new(RwLock::new(false)),
+            returned_replicas: Arc::new(RwLock::new(0)),
+        }
+    }
 }
 
 pub struct Replica {
