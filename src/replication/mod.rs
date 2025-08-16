@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use bytes::BytesMut;
 use thiserror::Error;
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     net::TcpStream,
     sync::RwLock,
 };
@@ -39,18 +40,18 @@ pub async fn read_host_connection(
     }
     let mut file_size = String::new();
     let _ = reader.read_line(&mut file_size).await;
-    drop(file_size);
-    // println!("file_size: {file_size}");
-    // let size = file_size
-    //     .trim_start_matches("$")
-    //     .trim_end()
-    //     .parse::<usize>()
-    //     .expect("should have a valid size");
-    // println!("slave: read RDB with size {size}");
-    // let mut buf = BytesMut::with_capacity(size);
-    // buf.resize(size, 0);
-    // let _ = reader.read_exact(&mut buf).await;
-    // println!("slave: RDB: {buf:?}");
+    println!("file_size: {file_size}");
+    let size = file_size
+        .trim_start_matches("$")
+        .trim_end()
+        .parse::<usize>()
+        .expect("should have a valid size");
+    println!("slave: read RDB with size {size}");
+    let mut buf = BytesMut::with_capacity(size);
+    buf.resize(size, 0);
+    let _ = reader.read_exact(&mut buf).await;
+    println!("slave: RDB: {buf:?}");
+    println!("leftovers; {:#?}", reader.buffer());
     reader.into_inner()
 }
 

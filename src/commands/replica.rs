@@ -1,7 +1,5 @@
-use std::{io::Read, time::Duration};
-
-use bytes::{Buf, BufMut, Bytes, BytesMut};
-use tokio::{io::AsyncWriteExt, time::timeout};
+use bytes::{BufMut, Bytes, BytesMut};
+use tokio::io::AsyncWriteExt;
 
 use crate::{
     commands::CommandResult,
@@ -11,7 +9,7 @@ use crate::{
 
 use super::CommandError;
 
-pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandError> {
+pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
     if args.len() == 2 {
         if args[0].to_ascii_lowercase().as_slice() == b"getack" {
             if !ctx.ctx_info.is_master {
@@ -22,19 +20,10 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandEr
                     Resp::BulkString(Bytes::from_static(b"ACK")),
                     Resp::BulkString(Bytes::from(offset.to_string())),
                 ];
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&Resp::Array(output).to_bytes())
-                    .await?;
+                return Ok(Resp::Array(output));
             } else {
-                ctx.out
-                    .write()
-                    .await
-                    .write_all(&getack().to_bytes())
-                    .await?;
+                return Ok(getack());
             }
-            return Ok(());
         }
         // if args[0].to_ascii_lowercase().as_slice() == b"ack" {
         //     if !ctx.ctx_info.is_master {
@@ -60,12 +49,7 @@ pub async fn replconf_cmd(ctx: &Context, args: &[Bytes]) -> Result<(), CommandEr
         // }
         // }
         // }
-        ctx.out
-            .write()
-            .await
-            .write_all(&Resp::SimpleString(Bytes::from_static(b"OK")).to_bytes())
-            .await?;
-        Ok(())
+        Ok(Resp::SimpleString(Bytes::from_static(b"OK")))
     } else {
         Err(CommandError::WrongNumArgs("replconf".to_string()))
     }
