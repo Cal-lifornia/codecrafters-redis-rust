@@ -39,7 +39,7 @@ pub async fn handle_handshake(
             &Resp::bulk_string_array(&[
                 Bytes::from_static(b"REPLCONF"),
                 Bytes::from_static(b"listening-port"),
-                Bytes::from(info.read().await.port.clone()),
+                Bytes::from(info.read().await.config.port.clone()),
             ])
             .to_bytes(),
         )

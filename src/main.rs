@@ -5,18 +5,34 @@ use codecrafters_redis::redis::{self};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let os_args: Vec<String> = args().collect();
-    let mut port_number = 6379;
-    if os_args.len() > 1 && os_args[1] == "--port" {
-        port_number = os_args[2].parse::<usize>()?;
-    }
 
-    let mut replica_of = None;
+    let mut port = "6379".to_string();
+    let mut db_filename = String::new();
+    let mut dir = String::new();
+    let mut replica_of: Option<String> = None;
 
-    if os_args.len() > 3 && os_args[3] == "--replicaof" {
-        replica_of = Some(os_args[4].to_string());
-    }
+    os_args[1..]
+        .iter()
+        .skip(2)
+        .zip(os_args[2..].iter().skip(2))
+        .for_each(|(key, val)| match key.as_str() {
+            "--port" => port = val.to_string(),
+            "--replica_of" => replica_of = Some(val.to_string()),
+            "--dir" => dir = val.to_string(),
+            "--dbfilename" => db_filename = val.to_string(),
+            _ => {}
+        });
 
     // Uncomment this block to pass the first stage
     //
-    redis::init("127.0.0.1", &port_number.to_string(), replica_of).await
+    redis::init(
+        "127.0.0.1",
+        codecrafters_redis::types::Config {
+            dir,
+            db_filename,
+            port,
+        },
+        replica_of,
+    )
+    .await
 }

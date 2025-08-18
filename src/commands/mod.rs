@@ -38,6 +38,7 @@ pub enum RedisCommand {
     Psync(Vec<Bytes>),
     Replconf(Vec<Bytes>),
     Wait(Vec<Bytes>),
+    Config(Vec<Bytes>),
 }
 
 #[derive(Debug, Error)]
@@ -65,30 +66,10 @@ pub enum CommandError {
 impl RedisCommand {
     pub fn is_write_command(&self) -> bool {
         use RedisCommand::*;
-        match self {
-            Ping => false,
-            Echo(_) => false,
-            Get(_) => false,
-            Set(_) => true,
-            Incr(_) => true,
-            Rpush(_) => true,
-            Lpush(_) => true,
-            Lrange(_) => false,
-            LLen(_) => false,
-            Lpop(_) => true,
-            Blpop(_) => true,
-            Type(_) => false,
-            Xadd(_) => true,
-            Xrange(_) => false,
-            Xread(_) => false,
-            Exec => false,
-            Discard => false,
-            Info(_) => false,
-            Multi => false,
-            Psync(_) => false,
-            Replconf(_) => false,
-            Wait(_) => false,
-        }
+        matches!(
+            self,
+            Set(_) | Incr(_) | Rpush(_) | Lpush(_) | Lpop(_) | Blpop(_) | Xadd(_)
+        )
     }
     fn is_replconf_command(&self) -> bool {
         matches!(self, RedisCommand::Replconf(_))
@@ -188,6 +169,7 @@ impl RedisCommand {
             },
             Multi => multi_cmd(ctx).await,
             Wait(ref items) => wait_cmd(ctx, items).await,
+            Config(ref items) => config_cmd(ctx, items).await,
             Exec => unreachable!(),
             Discard => unreachable!(),
             Info(_) => unreachable!(),
@@ -286,6 +268,7 @@ impl TryFrom<Vec<Bytes>> for RedisCommand {
             b"psync" => Ok(Psync(value[1..].to_vec())),
             b"replconf" => Ok(Replconf(value[1..].to_vec())),
             b"wait" => Ok(Wait(value[1..].to_vec())),
+            b"config" => Ok(Config(value[1..].to_vec())),
             _ => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "command does not exist",
@@ -399,6 +382,10 @@ impl From<RedisCommand> for Resp {
             }
             Wait(items) => {
                 output.push(Bytes::from_static(b"wait"));
+                output.extend_from_slice(&items);
+            }
+            Config(items) => {
+                output.push(Bytes::from_static(b"config"));
                 output.extend_from_slice(&items);
             }
         }

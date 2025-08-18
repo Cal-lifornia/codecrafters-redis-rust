@@ -13,15 +13,15 @@ use crate::{
     db::RedisDatabase,
     replication::{get_host_connection, handle_handshake},
     resp::{self, Resp, RespError},
-    types::{Context, CtxInfo, RedisInfo, Replica, ReplicationInfo},
+    types::{Config, Context, CtxInfo, RedisInfo, Replica, ReplicationInfo},
 };
 
 pub async fn init(
     address: &str,
-    port: &str,
+    config: Config,
     replica: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind(format!("{address}:{port}")).await?;
+    let listener = TcpListener::bind(format!("{address}:{}", config.port)).await?;
     let db = Arc::new(RedisDatabase::default());
     let (is_master, role, host_addr) = if let Some(host) = replica {
         let host_option = host.split_whitespace().take(2).collect::<Vec<_>>();
@@ -37,13 +37,13 @@ pub async fn init(
     };
     let info = if role == "master" {
         RedisInfo {
-            port: port.to_string(),
             replication: ReplicationInfo::new_master(role.to_string(), host_addr.clone(), 0),
+            config,
         }
     } else {
         RedisInfo {
-            port: port.to_string(),
             replication: ReplicationInfo::new_slave(role.to_string(), host_addr.clone()),
+            config,
         }
     };
     let arc_info = Arc::new(RwLock::new(info.clone()));

@@ -39,3 +39,24 @@ pub async fn info_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
         Err(CommandError::WrongNumArgs("info".to_string()))
     }
 }
+
+pub async fn config_cmd(ctx: &Context, args: &[Bytes]) -> CommandResult {
+    if !args.is_empty() {
+        match args[0].to_ascii_lowercase().as_slice() {
+            b"get" => match args[1].to_ascii_lowercase().as_slice() {
+                b"dir" => Ok(Resp::bulk_string_array(&[
+                    args[1].clone(),
+                    Bytes::from(ctx.app_info.read().await.config.dir.clone()),
+                ])),
+                b"dbfilename" => Ok(Resp::bulk_string_array(&[
+                    args[1].clone(),
+                    Bytes::from(ctx.app_info.read().await.config.db_filename.clone()),
+                ])),
+                _ => Err(CommandError::InvalidInput),
+            },
+            _ => Err(CommandError::InvalidInput),
+        }
+    } else {
+        Err(CommandError::WrongNumArgs("args".to_string()))
+    }
+}

@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub struct RedisInfo {
-    pub port: String,
     pub replication: ReplicationInfo,
+    pub config: Config,
 }
 
 #[derive(Debug, Clone)]
@@ -11,6 +11,13 @@ pub struct ReplicationInfo {
     pub offset: i32,
     pub replica_offset: i32,
     pub replication_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub dir: String,
+    pub db_filename: String,
+    pub port: String,
 }
 
 impl ReplicationInfo {
