@@ -179,7 +179,11 @@ impl RedisCommand {
             Xread(ref items) => xread_cmd(ctx, items).await,
             Replconf(ref items) => match replconf_cmd(ctx, items).await {
                 Ok(res) => Ok(res),
-                Err(CommandError::Ignore) => return Ok(()),
+                Err(CommandError::Ignore) => {
+                    // let offset = Resp::from(self.clone()).to_bytes().len() as i32;
+                    // ctx.app_info.write().await.replication.offset += offset;
+                    return Ok(());
+                }
                 Err(err) => Err(err),
             },
             Multi => multi_cmd(ctx).await,
@@ -189,8 +193,11 @@ impl RedisCommand {
             Info(_) => unreachable!(),
             Psync(_) => unreachable!(),
         };
+
         if ctx.ctx_info.is_master && (self.is_write_command()) {
             write_to_replicas(ctx, self.clone().into()).await?;
+            let offset = Resp::from(self.clone()).to_bytes().len() as i32;
+            ctx.app_info.write().await.replication.offset += offset;
         }
         if !ctx.ctx_info.is_master && ctx.ctx_info.stream_from_master {
             let offset = Resp::from(self.clone()).to_bytes().len() as i32;

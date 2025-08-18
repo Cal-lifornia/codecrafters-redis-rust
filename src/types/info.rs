@@ -9,6 +9,7 @@ pub struct ReplicationInfo {
     pub role: String,
     pub host_address: String,
     pub offset: i32,
+    pub replica_offset: i32,
     pub replication_id: String,
 }
 
@@ -32,6 +33,7 @@ impl ReplicationInfo {
             role,
             host_address,
             offset,
+            replica_offset: 0,
             replication_id,
         }
     }
@@ -41,6 +43,7 @@ impl ReplicationInfo {
             role,
             host_address: host_id,
             offset: -1,
+            replica_offset: 0,
             replication_id: "?".to_string(),
         }
     }
