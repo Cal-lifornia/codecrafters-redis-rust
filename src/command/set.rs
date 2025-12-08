@@ -32,7 +32,7 @@ impl ParseStream for SetExpiryOptions {
                 b"pxat" => Ok(SetExpiryOptions::Pxat(stream.parse()?)),
                 b"keepttl" => Ok(SetExpiryOptions::KeepTTL),
                 _ => Err(StreamParseError::Expected(
-                    "expiry options",
+                    "expiry options".into(),
                     String::from_utf8(next.to_vec()).expect("valid utf-8"),
                 )),
             }

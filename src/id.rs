@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::redis_stream::StreamParseError;
+
 #[derive(Clone)]
 pub struct WildcardID {
     pub ms_time: Option<usize>,
@@ -7,7 +9,7 @@ pub struct WildcardID {
 }
 
 impl WildcardID {
-    pub fn try_from_str(value: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn try_from_str(value: &str) -> Result<Self, StreamParseError> {
         if value == "*" {
             Ok(Self {
                 ms_time: None,
@@ -17,7 +19,7 @@ impl WildcardID {
             let (ms_time, sequence) = match value.split_once("-") {
                 Some((ms_time, sequence)) => (ms_time, sequence),
                 None => {
-                    return Err("missing character '-'".into());
+                    return Err(StreamParseError::Other("missing character '-'".into()));
                 }
             };
             let ms_time = Some(ms_time.parse::<usize>()?);

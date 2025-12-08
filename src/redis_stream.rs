@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{rc::Rc, sync::Arc};
 
 use bytes::Bytes;
 use hashbrown::HashMap;
@@ -6,14 +6,14 @@ use hashbrown::HashMap;
 use crate::{id::WildcardID, resp::RespType};
 
 pub struct RedisStream {
-    stream: Rc<Vec<Bytes>>,
+    stream: Arc<Vec<Bytes>>,
     cursor: usize,
 }
 
 impl RedisStream {
     pub fn fork(&self) -> Self {
         Self {
-            stream: Rc::clone(&self.stream),
+            stream: Arc::clone(&self.stream),
             cursor: self.cursor,
         }
     }
@@ -48,7 +48,7 @@ impl TryFrom<RespType> for RedisStream {
                 }
             }
             Ok(RedisStream {
-                stream: Rc::new(out),
+                stream: Arc::new(out),
                 cursor: 0,
             })
         } else {
@@ -66,12 +66,12 @@ pub enum StreamParseError {
     IntParseError(#[from] std::num::ParseIntError),
     #[error("{0}")]
     NumParseError(#[from] std::num::ParseFloatError),
-    #[error("{0}")]
-    Any(#[from] Box<dyn std::error::Error>),
+    #[error("{}", 0.to_string())]
+    Other(String),
     #[error("Invalid number of arguments")]
     EmptyArg,
     #[error("Expected: {0}; Got: {1}")]
-    Expected(&'static str, String),
+    Expected(String, String),
 }
 pub trait ParseStream: Sized {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError>;
@@ -97,7 +97,7 @@ impl ParseStream for bool {
                 b"true" => Ok(true),
                 b"false" => Ok(false),
                 _ => Err(StreamParseError::Expected(
-                    "true or false",
+                    "true or false".into(),
                     String::from_utf8(value.to_vec()).expect("valid utf-8"),
                 )),
             }
