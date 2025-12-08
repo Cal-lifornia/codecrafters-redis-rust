@@ -59,3 +59,9 @@ impl RedisWrite for RespType {
         }
     }
 }
+pub struct NullBulkString;
+impl RedisWrite for NullBulkString {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        buf.put_slice(b"$-1\r\n");
+    }
+}

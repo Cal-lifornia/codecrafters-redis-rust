@@ -21,6 +21,16 @@ const LF: u8 = b'\n';
 //     }
 // }
 
+enum Status {
+    SimpleString,
+    SimpleError,
+    Integer,
+    UInteger,
+    String,
+    Array,
+    Delimiter,
+}
+
 impl RespType {
     pub fn from_utf8(data: &'_ [u8]) -> RespParseResult<'_> {
         if data.is_empty() {

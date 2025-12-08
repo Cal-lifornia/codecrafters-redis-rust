@@ -1,3 +1,3 @@
 use crate::mod_flat;
 
-mod_flat!(resptype parse writer);
+mod_flat!(resptype read write);

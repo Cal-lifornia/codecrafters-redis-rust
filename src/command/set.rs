@@ -1,7 +1,11 @@
 use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 
-use crate::redis_stream::{ParseStream, RedisStream, StreamParseError};
+use crate::{
+    command::AsyncCommand,
+    redis_stream::{ParseStream, RedisStream, StreamParseError},
+    resp::{RedisWrite, RespType},
+};
 
 #[derive(RedisCommand)]
 #[redis_command(
@@ -39,5 +43,20 @@ impl ParseStream for SetExpiryOptions {
         } else {
             Err(StreamParseError::EmptyArg)
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl AsyncCommand for Set {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        ctx.db
+            .set_string(self.key.clone(), self.value.clone())
+            .await;
+        RespType::simple_string("OK".into()).write_to_buf(buf);
+        Ok(())
     }
 }

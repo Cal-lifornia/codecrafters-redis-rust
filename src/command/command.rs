@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::redis_stream::StreamParseError;
+use crate::{context::Context, redis_stream::StreamParseError};
 
 // pub type CmdAction = Box<dyn Fn(&mut Context) -> BoxFuture<Result<(), std::io::Error>>>;
 
@@ -15,21 +15,22 @@ pub trait Command {
     }
 }
 
-// #[async_trait::async_trait]
-// pub trait AsyncCommand {
-//     async fn run_command(&self, ctx: &mut Context) -> Result<Data, CommandError>;
-// }
+#[async_trait::async_trait]
+pub trait AsyncCommand {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError>;
+}
 
+#[derive(Debug)]
 pub struct CommandError {
     syntax: &'static str,
     kind: CommandErrorKind,
 }
 
-impl CommandError {
-    pub(crate) fn new(syntax: &'static str, kind: CommandErrorKind) -> Self {
-        Self { syntax, kind }
-    }
-}
+impl std::error::Error for CommandError {}
 
 impl std::fmt::Display for CommandError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
