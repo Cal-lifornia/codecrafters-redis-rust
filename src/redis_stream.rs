@@ -11,6 +11,17 @@ pub struct RedisStream {
 }
 
 impl RedisStream {
+    pub fn debug(&self) -> String {
+        let mut out = String::new();
+        let stream: Vec<String> = self
+            .stream
+            .iter()
+            .map(|value| String::from_utf8(value.to_vec()).expect("valid utf-8"))
+            .collect();
+        out.push_str(format!("Stream: {stream:?}").as_str());
+        out.push_str(format!("Cursor: {}", self.cursor).as_str());
+        out
+    }
     pub fn fork(&self) -> Self {
         Self {
             stream: Arc::clone(&self.stream),
@@ -128,6 +139,17 @@ impl ParseStream for Bytes {
 // }
 
 impl ParseStream for i64 {
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        if let Some(value) = stream.next() {
+            Ok(String::from_utf8(value.to_vec())
+                .expect("valid utf-8")
+                .parse()?)
+        } else {
+            Err(StreamParseError::EmptyArg)
+        }
+    }
+}
+impl ParseStream for u64 {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
         if let Some(value) = stream.next() {
             Ok(String::from_utf8(value.to_vec())

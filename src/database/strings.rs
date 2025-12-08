@@ -23,24 +23,32 @@ impl DatabaseString {
             false
         }
     }
-    pub fn update_value_ttl_expiry(&mut self, value: Bytes) {
-        self.value = value
-    }
+    // pub fn update_value_ttl_expiry(&mut self, value: Bytes) {
+    //     self.value = value
+    // }
 }
 
 impl RedisDatabase {
-    pub async fn set_string(&self, key: Bytes, val: Bytes) {
+    pub async fn set_string(
+        &self,
+        key: Bytes,
+        val: Bytes,
+        expiry: Option<Instant>,
+        _keep_ttl: bool,
+    ) {
         let mut string_db = self.strings.write().await;
-        string_db.insert(
-            key,
-            DatabaseString {
-                value: val,
-                expiry: None,
-            },
-        );
+        string_db.insert(key, DatabaseString { value: val, expiry });
     }
     pub async fn get_string(&self, key: &Bytes) -> Option<Bytes> {
         let string_db = self.strings.read().await;
-        string_db.get(key).map(|value| value.value.clone())
+        if let Some(val) = string_db.get(key) {
+            if val.is_expired() {
+                None
+            } else {
+                Some(val.value.clone())
+            }
+        } else {
+            None
+        }
     }
 }
