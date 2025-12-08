@@ -9,6 +9,17 @@ resolver = "2"
 members = ["redis-proc-macros"]
 
 [dependencies]
+anyhow = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+hashbrown = { workspace = true }
+indexmap = { workspace = true }
+
+[workspace.dependencies]
 anyhow = "1.0.59"                                   # error handling
 bytes = "1.3.0"                                     # helps manage buffers
 thiserror = "1.0.32"                                # error handling
