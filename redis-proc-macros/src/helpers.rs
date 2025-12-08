@@ -1,6 +1,7 @@
 // Checks if a field is a container against an iter of possible path types with only one colon separator,
 // like "Option:", "std:option:Option" or "core:option:Option".
 // Then will return a Some(syn::Type), syn::Type=the contained type
+#[allow(unused)]
 pub fn type_confirm(
     mut pattern: impl Iterator<Item = &'static str>,
     field: &syn::Field,
@@ -38,6 +39,7 @@ pub fn type_confirm(
     }
 }
 
+#[allow(unused)]
 pub fn add_generic_bounds(
     generics: &syn::Generics,
     bounds: proc_macro2::TokenStream,

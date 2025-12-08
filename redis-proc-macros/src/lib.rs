@@ -1,6 +1,6 @@
 use quote::quote;
 
-use crate::{helpers::type_confirm, redis_cmd::RedisCmd};
+use crate::redis_cmd::RedisCmd;
 
 mod helpers;
 

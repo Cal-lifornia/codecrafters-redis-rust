@@ -1,10 +1,9 @@
 use quote::{quote, quote_spanned};
 use syn::spanned::Spanned;
 
-use crate::type_confirm;
-
 pub struct RedisCmd {
     attrs: Vec<syn::Attribute>,
+    #[allow(unused)]
     vis: syn::Visibility,
     ident: syn::Ident,
     fields: syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
@@ -34,15 +33,15 @@ impl RedisCmd {
             let f = pair.value();
             let ident = &f.ident;
             quote_spanned! { f.span() =>
-                #ident: crate::command::ParseStream::parse_stream(stream)?,
+                #ident: crate::redis_stream::ParseStream::parse_stream(stream)?,
             }
         });
 
         let ident = &self.ident;
 
         quote! {
-            impl crate::command::ParseStream for #ident {
-                fn parse_stream(stream: &mut crate::command::InputStream) -> Result<Self, crate::command::StreamParseError> {
+            impl crate::redis_stream::ParseStream for #ident {
+                fn parse_stream(stream: &mut crate::redis_stream::RedisStream) -> Result<Self, crate::redis_stream::StreamParseError> {
                     Ok(Self {
                         #(#fields)*
                     })

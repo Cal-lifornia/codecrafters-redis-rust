@@ -96,6 +96,7 @@ dependencies = [
  "hashbrown",
  "indexmap",
  "rand",
+ "redis-proc-macros",
  "thiserror",
  "tokio",
 ]
