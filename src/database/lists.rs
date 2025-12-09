@@ -66,13 +66,20 @@ impl RedisDatabase {
         let mut lists = self.lists.write().await;
         if let Some(list) = lists.get_mut(key) {
             if let Some(count) = count {
-                todo!()
-            } else {
-                if let Some(out) = list.pop_front() {
-                    vec![out]
-                } else {
-                    vec![]
+                let count = list.len().min(count as usize);
+                let mut result = vec![];
+                for _ in 0..count {
+                    if let Some(value) = list.pop_front() {
+                        result.push(value);
+                    } else {
+                        break;
+                    }
                 }
+                result
+            } else if let Some(out) = list.pop_front() {
+                vec![out]
+            } else {
+                vec![]
             }
         } else {
             vec![]
