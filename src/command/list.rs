@@ -47,3 +47,23 @@ impl AsyncCommand for Lrange {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "LPUSH key element [element ...]")]
+pub struct Lpush {
+    key: Bytes,
+    values: Vec<Bytes>,
+}
+
+#[async_trait]
+impl AsyncCommand for Lpush {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let len = ctx.db.prepend_list(&self.key, self.values.clone()).await;
+        RespType::Integer(len).write_to_buf(buf);
+        Ok(())
+    }
+}

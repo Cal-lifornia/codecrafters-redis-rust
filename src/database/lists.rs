@@ -17,6 +17,20 @@ impl RedisDatabase {
             len as i64
         }
     }
+    pub async fn prepend_list(&self, key: &Bytes, values: Vec<Bytes>) -> i64 {
+        let mut lists = self.lists.write().await;
+        if let Some(list) = lists.get_mut(key) {
+            for value in values {
+                list.push_front(value);
+            }
+            list.len() as i64
+        } else {
+            let list = VecDeque::from_iter(values.iter().cloned().rev());
+            let len = list.len() as i64;
+            lists.insert(key.clone(), list);
+            len
+        }
+    }
     pub async fn range_list(&self, key: &Bytes, start: i64, stop: i64) -> Vec<Bytes> {
         let lists = self.lists.read().await;
         if let Some(list) = lists.get(key) {
