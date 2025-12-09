@@ -9,7 +9,7 @@ use tokio::{
 use crate::{
     command::{
         AsyncCommand, Blpop, Command, CommandError, Echo, Get, LLen, Lpop, Lpush, Lrange, Rpush,
-        Set,
+        Set, TypeCmd,
     },
     context::Context,
     database::RedisDatabase,
@@ -59,7 +59,16 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
     if let Some(next) = redis_stream.next() {
         match next.to_ascii_lowercase().as_slice() {
             b"ping" => RespType::simple_string("PONG".into()).write_to_buf(&mut buf),
-            b"echo" => Echo::parse_stream(&mut redis_stream)?.run(&mut buf).await?,
+            b"echo" => {
+                Echo::parse(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
+            b"type" => {
+                TypeCmd::parse(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
             b"set" => {
                 Set::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
