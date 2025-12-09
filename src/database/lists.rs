@@ -129,10 +129,13 @@ impl RedisDatabase {
                             value: value.remove(0),
                         }) {
                             eprintln!("ERROR sending blocklist {err:#?}");
+                            break;
                         } else {
                             break;
                         }
                     }
+                } else {
+                    continue;
                 }
             }
         }

@@ -119,11 +119,11 @@ impl AsyncCommand for Lpop {
     }
 }
 
-#[derive(RedisCommand, Debug, PartialEq, Eq)]
+#[derive(RedisCommand, Debug, PartialEq)]
 #[redis_command(syntax = "BLPOP key [key ...] timeout", impl_parse)]
 pub struct Blpop {
     keys: Vec<Bytes>,
-    timeout: i64,
+    timeout: f64,
 }
 
 impl ParseStream for Blpop {
@@ -146,10 +146,10 @@ impl AsyncCommand for Blpop {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::command::CommandError> {
-        let timeout = if self.timeout == 0 {
+        let timeout = if self.timeout == 0.0 {
             None
         } else {
-            Some(Instant::now() + Duration::from_secs(self.timeout as u64))
+            Some(Instant::now() + Duration::from_secs_f64(self.timeout))
         };
         match ctx.db.blocking_pop_list(&self.keys[0], timeout).await {
             either::Either::Left(blpop) => blpop.write_to_buf(buf),
@@ -191,13 +191,13 @@ mod tests {
     fn test_blpop_parse() {
         let keys = vec![Bytes::from("key1"), Bytes::from("key2")];
         let mut stream_input = keys.clone();
-        stream_input.push(Bytes::from("8"));
+        stream_input.push(Bytes::from("0"));
         let mut stream = RedisStream {
             stream: Arc::new(stream_input),
             cursor: 0,
         };
         let blpop = Blpop::parse_stream(&mut stream).unwrap();
-        let expected = Blpop { keys, timeout: 8 };
+        let expected = Blpop { keys, timeout: 0.0 };
         assert_eq!(expected, blpop)
     }
 }

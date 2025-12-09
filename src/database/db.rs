@@ -2,10 +2,10 @@ use std::{collections::VecDeque, sync::Arc};
 
 use bytes::Bytes;
 use hashbrown::HashMap;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::RwLock;
 
 use crate::{
-    database::{BlpopResponse, DatabaseString, ListBlocker},
+    database::{DatabaseString, ListBlocker},
     id::Id,
 };
 
