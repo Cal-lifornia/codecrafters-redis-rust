@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use crate::{
-    command::{AsyncCommand, CommandError, Echo, Get, Lpush, Lrange, Rpush, Set},
+    command::{AsyncCommand, Command, CommandError, Echo, Get, LLen, Lpush, Lrange, Rpush, Set},
     context::Context,
     database::RedisDatabase,
     redis_stream::{ParseStream, RedisStream, StreamParseError},
@@ -53,27 +53,32 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
             b"ping" => RespType::simple_string("PONG".into()).write_to_buf(&mut buf),
             b"echo" => Echo::parse_stream(&mut redis_stream)?.run(&mut buf).await?,
             b"set" => {
-                Set::parse_stream(&mut redis_stream)?
+                Set::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }
             b"get" => {
-                Get::parse_stream(&mut redis_stream)?
+                Get::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }
             b"rpush" => {
-                Rpush::parse_stream(&mut redis_stream)?
+                Rpush::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }
             b"lrange" => {
-                Lrange::parse_stream(&mut redis_stream)?
+                Lrange::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }
             b"lpush" => {
-                Lpush::parse_stream(&mut redis_stream)?
+                Lpush::parse(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
+            b"llen" => {
+                LLen::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }

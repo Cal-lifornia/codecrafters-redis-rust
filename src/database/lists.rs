@@ -53,4 +53,12 @@ impl RedisDatabase {
             vec![]
         }
     }
+    pub async fn list_len(&self, key: &Bytes) -> i64 {
+        let lists = self.lists.read().await;
+        if let Some(list) = lists.get(key) {
+            list.len() as i64
+        } else {
+            0
+        }
+    }
 }

@@ -67,3 +67,22 @@ impl AsyncCommand for Lpush {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "LLEN key")]
+pub struct LLen {
+    key: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for LLen {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let len = ctx.db.list_len(&self.key).await;
+        RespType::Integer(len).write_to_buf(buf);
+        Ok(())
+    }
+}

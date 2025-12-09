@@ -1,10 +1,10 @@
 use std::fmt::Debug;
 
-use crate::{context::Context, redis_stream::StreamParseError};
+use crate::redis_stream::{ParseStream, RedisStream, StreamParseError};
 
 // pub type CmdAction = Box<dyn Fn(&mut Context) -> BoxFuture<Result<(), std::io::Error>>>;
 
-pub trait Command {
+pub trait Command: ParseStream + Sized {
     fn name() -> &'static str;
     fn syntax() -> &'static str;
     fn error(kind: CommandErrorKind) -> CommandError {
@@ -12,6 +12,9 @@ pub trait Command {
             syntax: Self::syntax(),
             kind,
         }
+    }
+    fn parse(stream: &mut RedisStream) -> Result<Self, CommandError> {
+        Self::parse_stream(stream).map_err(|err| Self::error(err.into()))
     }
 }
 
