@@ -1,35 +1,45 @@
-use std::{collections::VecDeque, ops::RangeBounds};
+use std::collections::VecDeque;
 
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
+use either::Either;
+use tokio::{sync::oneshot, time::Instant};
 
-use crate::database::RedisDatabase;
+use crate::{database::RedisDatabase, resp::RedisWrite};
 
 impl RedisDatabase {
     pub async fn push_list(&self, key: &Bytes, values: Vec<Bytes>) -> i64 {
-        let mut lists = self.lists.write().await;
-        if let Some(list) = lists.get_mut(key) {
-            list.extend(values.iter().cloned());
-            list.len() as i64
-        } else {
-            let list = VecDeque::from(values);
-            let len = list.len();
-            lists.insert(key.clone(), list);
-            len as i64
-        }
+        let output = {
+            let mut lists = self.lists.write().await;
+            if let Some(list) = lists.get_mut(key) {
+                list.extend(values.iter().cloned());
+                list.len() as i64
+            } else {
+                let list = VecDeque::from(values);
+                let len = list.len();
+                lists.insert(key.clone(), list);
+                len as i64
+            }
+        };
+        self.handle_list_blocklist(key).await;
+        output
     }
     pub async fn prepend_list(&self, key: &Bytes, values: Vec<Bytes>) -> i64 {
-        let mut lists = self.lists.write().await;
-        if let Some(list) = lists.get_mut(key) {
-            for value in values {
-                list.push_front(value);
+        let output = {
+            let mut lists = self.lists.write().await;
+            if let Some(list) = lists.get_mut(key) {
+                for value in values {
+                    list.push_front(value);
+                }
+                list.len() as i64
+            } else {
+                let list = VecDeque::from_iter(values.iter().cloned().rev());
+                let len = list.len() as i64;
+                lists.insert(key.clone(), list);
+                len
             }
-            list.len() as i64
-        } else {
-            let list = VecDeque::from_iter(values.iter().cloned().rev());
-            let len = list.len() as i64;
-            lists.insert(key.clone(), list);
-            len
-        }
+        };
+        self.handle_list_blocklist(key).await;
+        output
     }
     pub async fn range_list(&self, key: &Bytes, start: i64, stop: i64) -> Vec<Bytes> {
         let lists = self.lists.read().await;
@@ -84,5 +94,76 @@ impl RedisDatabase {
         } else {
             vec![]
         }
+    }
+    pub async fn blocking_pop_list(
+        &self,
+        key: &Bytes,
+        timeout: Option<Instant>,
+    ) -> Either<BlpopResponse, oneshot::Receiver<BlpopResponse>> {
+        let mut lists = self.lists.write().await;
+        if let Some(list) = lists.get_mut(key)
+            && let Some(value) = list.pop_front()
+        {
+            return Either::Left(BlpopResponse {
+                key: key.clone(),
+                value,
+            });
+        }
+        let mut blocklist = self.list_blocklist.lock().await;
+        let (sender, receiver) = oneshot::channel::<BlpopResponse>();
+        let waiter = ListBlocker { sender, timeout };
+        blocklist.entry(key.clone()).or_default().push(waiter);
+        Either::Right(receiver)
+    }
+
+    pub async fn handle_list_blocklist(&self, key: &Bytes) {
+        let mut blockers = self.list_blocklist.lock().await;
+        if let Some(waiters) = blockers.get_mut(key) {
+            while !waiters.is_empty() {
+                let waiter = waiters.remove(0);
+                if !waiter.timed_out() {
+                    let mut value = self.pop_list(key, None).await;
+                    if !value.is_empty() {
+                        if let Err(err) = waiter.sender.send(BlpopResponse {
+                            key: key.clone(),
+                            value: value.remove(0),
+                        }) {
+                            eprintln!("ERROR sending blocklist {err:#?}");
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ListBlocker {
+    sender: oneshot::Sender<BlpopResponse>,
+    timeout: Option<Instant>,
+}
+
+impl ListBlocker {
+    pub fn timed_out(&self) -> bool {
+        if let Some(timeout) = self.timeout {
+            Instant::now() > timeout
+        } else {
+            false
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BlpopResponse {
+    pub key: Bytes,
+    pub value: Bytes,
+}
+
+impl RedisWrite for BlpopResponse {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let response = vec![self.key.clone(), self.value.clone()];
+        response.write_to_buf(buf);
     }
 }

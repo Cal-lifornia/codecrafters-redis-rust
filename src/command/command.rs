@@ -5,6 +5,7 @@ use crate::redis_stream::{ParseStream, RedisStream, StreamParseError};
 // pub type CmdAction = Box<dyn Fn(&mut Context) -> BoxFuture<Result<(), std::io::Error>>>;
 
 pub trait Command: ParseStream + Sized {
+    #[allow(unused)]
     fn name() -> &'static str;
     fn syntax() -> &'static str;
     fn error(kind: CommandErrorKind) -> CommandError {

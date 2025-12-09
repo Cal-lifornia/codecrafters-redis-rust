@@ -1,3 +1,4 @@
+#[allow(unused)]
 pub struct ValueEnum {
     attrs: Vec<syn::Attribute>,
     vis: syn::Visibility,

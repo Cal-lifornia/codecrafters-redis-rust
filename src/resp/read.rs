@@ -10,27 +10,6 @@ const CR: u8 = b'\r';
 const LF: u8 = b'\n';
 // const CRLF: [u8; 2] = [CR, LF];
 
-// pub trait IntoResp {
-//     fn try_into_resp(&self) -> Result<RespType, std::io::Error>;
-// }
-
-// impl IntoResp for &[u8] {
-//     fn try_into_resp(&self) -> Result<RespType, Error> {
-//         let (out, _) = RespType::from_utf8(self)?;
-//         Ok(out)
-//     }
-// }
-
-enum Status {
-    SimpleString,
-    SimpleError,
-    Integer,
-    UInteger,
-    String,
-    Array,
-    Delimiter,
-}
-
 impl RespType {
     pub fn from_utf8(data: &'_ [u8]) -> RespParseResult<'_> {
         if data.is_empty() {

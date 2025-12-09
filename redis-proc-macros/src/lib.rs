@@ -22,8 +22,8 @@ pub fn redis_cmd(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     }
     .into()
 }
-#[proc_macro_derive(ValueEnum)]
-pub fn value_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let _ = input;
-    proc_macro::TokenStream::new()
-}
+// #[proc_macro_derive(ValueEnum)]
+// pub fn value_enum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+//     let _ = input;
+//     proc_macro::TokenStream::new()
+// }

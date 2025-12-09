@@ -8,7 +8,8 @@ use tokio::{
 
 use crate::{
     command::{
-        AsyncCommand, Command, CommandError, Echo, Get, LLen, Lpop, Lpush, Lrange, Rpush, Set,
+        AsyncCommand, Blpop, Command, CommandError, Echo, Get, LLen, Lpop, Lpush, Lrange, Rpush,
+        Set,
     },
     context::Context,
     database::RedisDatabase,
@@ -37,9 +38,14 @@ pub async fn run() -> std::io::Result<()> {
                         return;
                     }
                 };
-                let results = handle_stream(ctx.clone(), &buf[0..n])
-                    .await
-                    .expect("valid results");
+                let results = match handle_stream(ctx.clone(), &buf[0..n]).await {
+                    Ok(results) => results,
+                    Err(err) => {
+                        let mut results = BytesMut::new();
+                        RespType::simple_error(err.to_string()).write_to_buf(&mut results);
+                        results.into()
+                    }
+                };
                 socket.write_all(&results).await.expect("valid read");
             }
         });
@@ -86,6 +92,11 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
             }
             b"lpop" => {
                 Lpop::parse(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
+            b"blpop" => {
+                Blpop::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }

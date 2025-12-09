@@ -6,8 +6,8 @@ use hashbrown::HashMap;
 use crate::{id::WildcardID, resp::RespType};
 
 pub struct RedisStream {
-    stream: Arc<Vec<Bytes>>,
-    cursor: usize,
+    pub(crate) stream: Arc<Vec<Bytes>>,
+    pub(crate) cursor: usize,
 }
 
 impl RedisStream {
@@ -33,6 +33,9 @@ impl RedisStream {
     }
     pub fn peek(&self) -> Option<&Bytes> {
         self.stream.get(self.cursor)
+    }
+    pub fn remaining(&self) -> usize {
+        self.stream.len() - self.cursor
     }
 }
 

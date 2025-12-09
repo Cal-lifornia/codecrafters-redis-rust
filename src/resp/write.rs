@@ -80,3 +80,10 @@ impl<T: RedisWrite> RedisWrite for Vec<T> {
         self.iter().for_each(|resp| resp.write_to_buf(buf));
     }
 }
+
+pub struct NullArray;
+impl RedisWrite for NullArray {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        buf.put_slice(b"*-1\r\n");
+    }
+}
