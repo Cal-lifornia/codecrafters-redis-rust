@@ -27,32 +27,37 @@ impl PartialOrd for DatabaseStreamEntry {
 impl RedisDatabase {
     pub async fn add_stream(
         &self,
-        key: &Bytes,
+        key: Bytes,
         id: WildcardID,
         values: HashMap<Bytes, Bytes>,
-    ) -> Id {
+    ) -> Result<Id, DbStreamAddError> {
         let mut streams = self.streams.write().await;
-        if let Some(stream) = streams.get_mut(key) {
-            if let Some(id) = Id::from_wildcard(id) {
-                if let Some(last) = stream.last() {
-                    if last.id < id {
-                        stream.push(DatabaseStreamEntry { id, values });
-                        id
-                    } else {
-                        todo!()
-                    }
-                } else {
+        let stream = streams.entry(key).or_default();
+        if let Some(id) = Id::from_wildcard(id) {
+            if id.is_zero_zero() {
+                return Err(DbStreamAddError::IdZeroZero);
+            }
+            if let Some(last) = stream.last() {
+                if id > last.id {
                     stream.push(DatabaseStreamEntry { id, values });
-                    id
+                    Ok(id)
+                } else {
+                    Err(DbStreamAddError::IdNotGreater)
                 }
             } else {
-                todo!()
+                stream.push(DatabaseStreamEntry { id, values });
+                Ok(id)
             }
-        } else if let Some(id) = Id::from_wildcard(id) {
-            streams.insert(key.clone(), vec![DatabaseStreamEntry { id, values }]);
-            id
         } else {
             todo!()
         }
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbStreamAddError {
+    #[error("ERR The ID specified in XADD is equal or smaller than the target stream top item")]
+    IdNotGreater,
+    #[error("ERR The ID specified in XADD must be greater than 0-0")]
+    IdZeroZero,
 }

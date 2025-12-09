@@ -3,7 +3,11 @@ use bytes::Bytes;
 use hashbrown::HashMap;
 use redis_proc_macros::RedisCommand;
 
-use crate::{command::AsyncCommand, id::WildcardID, resp::RedisWrite};
+use crate::{
+    command::AsyncCommand,
+    id::WildcardID,
+    resp::{RedisWrite, RespType},
+};
 
 #[derive(RedisCommand)]
 #[redis_command(
@@ -23,11 +27,14 @@ impl AsyncCommand for Xadd {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::command::CommandError> {
-        let id = ctx
+        match ctx
             .db
-            .add_stream(&self.key, self.id.clone(), self.values.clone())
-            .await;
-        id.write_to_buf(buf);
+            .add_stream(self.key.clone(), self.id.clone(), self.values.clone())
+            .await
+        {
+            Ok(id) => id.write_to_buf(buf),
+            Err(err) => RespType::simple_error(err.to_string()).write_to_buf(buf),
+        }
         Ok(())
     }
 }

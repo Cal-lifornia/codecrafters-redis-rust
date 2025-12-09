@@ -57,6 +57,9 @@ impl Id {
             None
         }
     }
+    pub fn is_zero_zero(&self) -> bool {
+        self.ms_time == 0 && self.sequence == 0
+    }
 }
 
 impl Display for Id {
