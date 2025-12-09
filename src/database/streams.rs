@@ -89,55 +89,51 @@ impl RedisDatabase {
     ) -> Vec<DatabaseStreamEntry> {
         let streams = self.streams.read().await;
         if let Some(stream) = streams.get(key) {
-            if let Some(start) = start
-                && let Some(stop) = end
-            {
-                let first = match start {
-                    XrangeIdInput::MsTime(ms_time) => {
-                        let id = Id {
-                            ms_time: *ms_time as usize,
-                            sequence: 0,
-                        };
-                        stream.partition_point(|key_id, _value| key_id < &id)
-                    }
-                    XrangeIdInput::Id(id) => {
-                        if let Some(idx) = stream.get_index_of(id) {
-                            idx
-                        } else {
-                            todo!()
-                        }
-                    }
-                };
-                let last = match stop {
-                    XrangeIdInput::MsTime(ms_time) => {
-                        let id = Id {
-                            ms_time: *ms_time as usize,
-                            sequence: 0,
-                        };
-                        stream.partition_point(|key_id, _value| key_id <= &id)
-                    }
-                    XrangeIdInput::Id(id) => {
-                        if let Some(idx) = stream.get_index_of(id) {
-                            idx
-                        } else {
-                            todo!()
-                        }
-                    }
-                };
-
-                if let Some(range) = stream.get_range(first..=last) {
-                    range
-                        .iter()
-                        .map(|(key, value)| DatabaseStreamEntry {
-                            id: *key,
-                            values: value.clone(),
-                        })
-                        .collect()
-                } else {
-                    vec![]
+            let first = match start {
+                Some(XrangeIdInput::MsTime(ms_time)) => {
+                    let id = Id {
+                        ms_time: *ms_time as usize,
+                        sequence: 0,
+                    };
+                    stream.partition_point(|key_id, _value| key_id < &id)
                 }
+                Some(XrangeIdInput::Id(id)) => {
+                    if let Some(idx) = stream.get_index_of(id) {
+                        idx
+                    } else {
+                        todo!()
+                    }
+                }
+                None => 0,
+            };
+            let last = match end {
+                Some(XrangeIdInput::MsTime(ms_time)) => {
+                    let id = Id {
+                        ms_time: *ms_time as usize,
+                        sequence: 0,
+                    };
+                    stream.partition_point(|key_id, _value| key_id <= &id)
+                }
+                Some(XrangeIdInput::Id(id)) => {
+                    if let Some(idx) = stream.get_index_of(id) {
+                        idx
+                    } else {
+                        todo!()
+                    }
+                }
+                None => stream.len() - 1,
+            };
+
+            if let Some(range) = stream.get_range(first..=last) {
+                range
+                    .iter()
+                    .map(|(key, value)| DatabaseStreamEntry {
+                        id: *key,
+                        values: value.clone(),
+                    })
+                    .collect()
             } else {
-                todo!()
+                vec![]
             }
         } else {
             vec![]
