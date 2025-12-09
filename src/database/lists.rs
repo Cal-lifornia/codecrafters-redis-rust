@@ -61,4 +61,21 @@ impl RedisDatabase {
             0
         }
     }
+
+    pub async fn pop_list(&self, key: &Bytes, count: Option<u64>) -> Vec<Bytes> {
+        let mut lists = self.lists.write().await;
+        if let Some(list) = lists.get_mut(key) {
+            if let Some(count) = count {
+                todo!()
+            } else {
+                if let Some(out) = list.pop_front() {
+                    vec![out]
+                } else {
+                    vec![]
+                }
+            }
+        } else {
+            vec![]
+        }
+    }
 }
