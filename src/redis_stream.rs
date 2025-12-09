@@ -18,7 +18,7 @@ impl RedisStream {
             .iter()
             .map(|value| String::from_utf8(value.to_vec()).expect("valid utf-8"))
             .collect();
-        out.push_str(format!("Stream: {stream:?}").as_str());
+        out.push_str(format!("Stream: {stream:?}\n").as_str());
         out.push_str(format!("Cursor: {}", self.cursor).as_str());
         out
     }
@@ -30,6 +30,9 @@ impl RedisStream {
     }
     pub fn parse<T: ParseStream>(&mut self) -> Result<T, StreamParseError> {
         T::parse_stream(self)
+    }
+    pub fn peek(&self) -> Option<&Bytes> {
+        self.stream.get(self.cursor)
     }
 }
 
@@ -187,8 +190,12 @@ impl ParseStream for WildcardID {
 impl<T: ParseStream> ParseStream for Vec<T> {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
         let mut out: Vec<T> = vec![];
-        while stream.peekable().peek().is_some() {
-            out.push(T::parse_stream(stream)?);
+        loop {
+            if stream.peek().is_some() {
+                out.push(T::parse_stream(stream)?);
+            } else {
+                break;
+            }
         }
         Ok(out)
     }
