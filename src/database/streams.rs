@@ -2,6 +2,7 @@ use std::time::SystemTime;
 
 use bytes::{BufMut, Bytes};
 use hashbrown::HashMap;
+use indexmap::IndexMap;
 
 use crate::{
     command::XrangeIdInput,
@@ -138,6 +139,29 @@ impl RedisDatabase {
         } else {
             vec![]
         }
+    }
+    pub async fn read_stream(
+        &self,
+        queries: &IndexMap<Bytes, Id>,
+    ) -> IndexMap<Bytes, Vec<DatabaseStreamEntry>> {
+        let streams = self.streams.read().await;
+        let mut out: IndexMap<Bytes, Vec<DatabaseStreamEntry>> = IndexMap::new();
+        for (key, id) in queries.iter() {
+            if let Some(stream) = streams.get(key) {
+                let idx = stream.partition_point(|key, _| key >= id) - 1;
+                if let Some(values) = stream.get_range(idx..) {
+                    let results = values
+                        .iter()
+                        .map(|(key, value)| DatabaseStreamEntry {
+                            id: *key,
+                            values: value.clone(),
+                        })
+                        .collect();
+                    out.insert(key.clone(), results);
+                }
+            }
+        }
+        out
     }
 }
 

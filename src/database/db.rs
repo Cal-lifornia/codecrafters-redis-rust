@@ -6,7 +6,7 @@ use indexmap::IndexMap;
 use tokio::sync::RwLock;
 
 use crate::{
-    database::{DatabaseStreamEntry, DatabaseString, ListBlocker},
+    database::{DatabaseString, ListBlocker},
     id::Id,
 };
 

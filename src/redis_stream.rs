@@ -3,8 +3,12 @@ use std::sync::Arc;
 use bytes::Bytes;
 use either::Either;
 use hashbrown::HashMap;
+use indexmap::IndexMap;
 
-use crate::{id::WildcardID, resp::RespType};
+use crate::{
+    id::{Id, WildcardID},
+    resp::RespType,
+};
 
 pub struct RedisStream {
     pub(crate) stream: Arc<Vec<Bytes>>,
@@ -192,6 +196,18 @@ impl ParseStream for WildcardID {
     }
 }
 
+impl ParseStream for Id {
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        if let Some(value) = stream.next() {
+            Ok(Id::try_from_str(
+                str::from_utf8(&value).expect("valid utf-8"),
+            )?)
+        } else {
+            Err(StreamParseError::EmptyArg)
+        }
+    }
+}
+
 impl<T: ParseStream> ParseStream for Vec<T> {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
         let mut out: Vec<T> = vec![];
@@ -229,5 +245,21 @@ impl<L: ParseStream, R: ParseStream> ParseStream for Either<L, R> {
         } else {
             Ok(Either::Right(stream.parse::<R>()?))
         }
+    }
+}
+
+impl<K, V> ParseStream for IndexMap<K, V>
+where
+    K: ParseStream + std::hash::Hash + Eq,
+    V: ParseStream,
+{
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        let mut index = IndexMap::new();
+        while stream.remaining() > 1 {
+            let key = K::parse_stream(stream)?;
+            let value = V::parse_stream(stream)?;
+            index.insert(key, value);
+        }
+        Ok(index)
     }
 }

@@ -50,6 +50,19 @@ pub struct Id {
 }
 
 impl Id {
+    pub fn try_from_str(value: &str) -> Result<Self, StreamParseError> {
+        if let Some((ms_time, sequence)) = value.split_once("-") {
+            Ok(Self {
+                ms_time: ms_time.parse()?,
+                sequence: sequence.parse()?,
+            })
+        } else {
+            Ok(Self {
+                ms_time: value.parse()?,
+                sequence: 0,
+            })
+        }
+    }
     pub fn from_wildcard(wildcard: WildcardID) -> Option<Self> {
         if let (Some(ms_time), Some(sequence)) = (wildcard.ms_time, wildcard.sequence) {
             Some(Self { ms_time, sequence })

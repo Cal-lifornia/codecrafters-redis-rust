@@ -2,8 +2,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use either::Either;
 use hashbrown::HashMap;
+use indexmap::IndexMap;
 use redis_proc_macros::RedisCommand;
 
+use crate::command::SymbolStreams;
 use crate::command::macros::Symbol;
 use crate::id::Id;
 use crate::redis_stream::ParseStream;
@@ -104,6 +106,29 @@ impl AsyncCommand for Xrange {
         } else {
             values.write_to_buf(buf);
         }
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(
+    syntax = "XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]"
+)]
+pub struct Xread {
+    #[allow(unused)]
+    stream: SymbolStreams,
+    queries: IndexMap<Bytes, Id>,
+}
+
+#[async_trait]
+impl AsyncCommand for Xread {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let results = ctx.db.read_stream(&self.queries).await;
+        vec![results].write_to_buf(buf);
         Ok(())
     }
 }

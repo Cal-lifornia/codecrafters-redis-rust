@@ -1,6 +1,7 @@
 pub struct SymbolPlus;
 pub struct SymbolMinus;
 pub struct SymbolWildCard;
+pub struct SymbolStreams;
 
 // impl crate::redis_stream::ParseStream for SymbolMinus {
 //     fn parse_stream(
@@ -8,7 +9,7 @@ pub struct SymbolWildCard;
 //     ) -> Result<Self, crate::redis_stream::StreamParseError> {
 //         let value = stream.parse::<bytes::Bytes>()?;
 //         let disp = "-";
-//         if *value != *disp.as_bytes() {
+//         if *value.to_ascii_lowercase() != *disp.as_bytes() {
 //             Err(crate::redis_stream::StreamParseError::Expected(
 //                 "-".into(),
 //                 String::from_utf8(value.to_vec()).expect("valid utf-8"),
@@ -35,7 +36,7 @@ macro_rules! symbol_parse {
                 stream: &mut crate::redis_stream::RedisStream,
             ) -> Result<Self, crate::redis_stream::StreamParseError> {
                 let value = stream.parse::<bytes::Bytes>()?;
-                if *value != *$str.as_bytes() {
+                if *value.to_ascii_lowercase() != *$str.as_bytes() {
                     Err(crate::redis_stream::StreamParseError::Expected(
                         $str.into(),
                         String::from_utf8(value.to_vec()).expect("valid utf-8"),
@@ -51,3 +52,4 @@ macro_rules! symbol_parse {
 symbol_parse!(SymbolPlus, "+");
 symbol_parse!(SymbolMinus, "-");
 symbol_parse!(SymbolWildCard, "*");
+symbol_parse!(SymbolStreams, "streams".to_lowercase());
