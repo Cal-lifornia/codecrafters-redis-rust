@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use either::Either;
 use hashbrown::HashMap;
 
 use crate::{id::WildcardID, resp::RespType};
@@ -218,5 +219,15 @@ where
             map.insert(key, value);
         }
         Ok(map)
+    }
+}
+
+impl<L: ParseStream, R: ParseStream> ParseStream for Either<L, R> {
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        if let Some(left) = stream.parse::<Option<L>>()? {
+            Ok(Either::Left(left))
+        } else {
+            Ok(Either::Right(stream.parse::<R>()?))
+        }
     }
 }

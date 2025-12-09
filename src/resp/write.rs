@@ -1,4 +1,6 @@
 use bytes::{BufMut, Bytes};
+use hashbrown::HashMap;
+use indexmap::IndexMap;
 
 use crate::resp::RespType;
 
@@ -85,5 +87,29 @@ pub struct NullArray;
 impl RedisWrite for NullArray {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         buf.put_slice(b"*-1\r\n");
+    }
+}
+
+impl<T: RedisWrite + Clone> RedisWrite for HashMap<T, T> {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let mut out: Vec<T> = vec![];
+        self.iter().for_each(|(key, value)| {
+            out.push(key.clone());
+            out.push(value.clone());
+        });
+        out.write_to_buf(buf);
+    }
+}
+
+impl<K: RedisWrite, V: RedisWrite> RedisWrite for IndexMap<K, V> {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let len = self.len() * 2;
+        buf.put_u8(b'*');
+        buf.put_slice(len.to_string().as_bytes());
+        buf.put_slice(&CRLF);
+        self.iter().for_each(|(key, value)| {
+            key.write_to_buf(buf);
+            value.write_to_buf(buf);
+        });
     }
 }

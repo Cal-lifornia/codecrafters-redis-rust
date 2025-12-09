@@ -2,9 +2,13 @@ use std::{collections::VecDeque, sync::Arc};
 
 use bytes::Bytes;
 use hashbrown::HashMap;
+use indexmap::IndexMap;
 use tokio::sync::RwLock;
 
-use crate::database::{DatabaseStreamEntry, DatabaseString, ListBlocker};
+use crate::{
+    database::{DatabaseStreamEntry, DatabaseString, ListBlocker},
+    id::Id,
+};
 
 pub type DB<T> = Arc<RwLock<hashbrown::HashMap<Bytes, T>>>;
 
@@ -14,7 +18,7 @@ pub type ListBlocklist = Arc<tokio::sync::Mutex<HashMap<Bytes, Vec<ListBlocker>>
 pub struct RedisDatabase {
     pub(crate) strings: DB<DatabaseString>,
     // pub(crate) nums: DB<i32>,
-    pub(crate) streams: DB<Vec<DatabaseStreamEntry>>,
+    pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
     pub(crate) list_blocklist: ListBlocklist,
 }
