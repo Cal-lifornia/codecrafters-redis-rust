@@ -20,6 +20,14 @@ impl RedisDatabase {
     pub async fn range_list(&self, key: &Bytes, start: i64, stop: i64) -> Vec<Bytes> {
         let lists = self.lists.read().await;
         if let Some(list) = lists.get(key) {
+            let mut start = start;
+            let mut stop = stop;
+            if start.is_negative() {
+                start = (list.len() as i64 + start).max(0);
+            }
+            if stop.is_negative() {
+                stop = (list.len() as i64 + stop).max(0);
+            }
             if start > stop || start as usize >= list.len() {
                 vec![]
             } else {
