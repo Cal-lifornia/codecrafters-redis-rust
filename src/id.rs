@@ -7,7 +7,7 @@ use crate::{
     resp::{RedisWrite, RespType},
 };
 
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct WildcardID {
     pub ms_time: Option<usize>,
     pub sequence: Option<usize>,
@@ -59,6 +59,12 @@ impl Id {
     }
     pub fn is_zero_zero(&self) -> bool {
         self.ms_time == 0 && self.sequence == 0
+    }
+    pub fn increment_sequence(&self) -> Self {
+        Self {
+            ms_time: self.ms_time,
+            sequence: self.sequence + 1,
+        }
     }
 }
 

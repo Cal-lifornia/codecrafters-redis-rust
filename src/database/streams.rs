@@ -48,6 +48,19 @@ impl RedisDatabase {
                 stream.push(DatabaseStreamEntry { id, values });
                 Ok(id)
             }
+        } else if let Some(ms_time) = id.ms_time {
+            if let Some(last) = stream.last()
+                && last.id.ms_time == ms_time
+            {
+                let id = last.id.increment_sequence();
+                stream.push(DatabaseStreamEntry { id, values });
+                Ok(id)
+            } else {
+                let sequence = if ms_time == 0 { 1 } else { 0 };
+                let id = Id { ms_time, sequence };
+                stream.push(DatabaseStreamEntry { id, values });
+                Ok(id)
+            }
         } else {
             todo!()
         }
