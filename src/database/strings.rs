@@ -10,12 +10,12 @@ pub struct DatabaseString {
 }
 
 impl DatabaseString {
-    pub fn new(value: Bytes, expiry: Option<Instant>) -> Self {
-        Self { value, expiry }
-    }
-    pub fn value(&self) -> &Bytes {
-        &self.value
-    }
+    // pub fn new(value: Bytes, expiry: Option<Instant>) -> Self {
+    //     Self { value, expiry }
+    // }
+    // pub fn value(&self) -> &Bytes {
+    //     &self.value
+    // }
     pub fn is_expired(&self) -> bool {
         if let Some(expiry) = self.expiry {
             Instant::now() > expiry

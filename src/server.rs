@@ -9,11 +9,11 @@ use tokio::{
 use crate::{
     command::{
         AsyncCommand, Blpop, Command, CommandError, Echo, Get, LLen, Lpop, Lpush, Lrange, Rpush,
-        Set, TypeCmd,
+        Set, TypeCmd, Xadd,
     },
     context::Context,
     database::RedisDatabase,
-    redis_stream::{ParseStream, RedisStream, StreamParseError},
+    redis_stream::{RedisStream, StreamParseError},
     resp::{RedisWrite, RespType},
 };
 
@@ -42,6 +42,7 @@ pub async fn run() -> std::io::Result<()> {
                     Ok(results) => results,
                     Err(err) => {
                         let mut results = BytesMut::new();
+                        eprintln!("ERROR: {err}");
                         RespType::simple_error(err.to_string()).write_to_buf(&mut results);
                         results.into()
                     }
@@ -106,6 +107,11 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
             }
             b"blpop" => {
                 Blpop::parse(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
+            b"xadd" => {
+                Xadd::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }

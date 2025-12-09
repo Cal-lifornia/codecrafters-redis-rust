@@ -1,6 +1,11 @@
 use std::fmt::Display;
 
-use crate::redis_stream::StreamParseError;
+use bytes::Bytes;
+
+use crate::{
+    redis_stream::StreamParseError,
+    resp::{RedisWrite, RespType},
+};
 
 #[derive(Clone)]
 pub struct WildcardID {
@@ -57,6 +62,12 @@ impl Id {
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}", self.ms_time, self.sequence)
+    }
+}
+
+impl RedisWrite for Id {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        RespType::BulkString(Bytes::from(self.to_string())).write_to_buf(buf);
     }
 }
 

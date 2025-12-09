@@ -11,6 +11,7 @@ pub struct RedisStream {
 }
 
 impl RedisStream {
+    #[allow(unused)]
     pub fn debug(&self) -> String {
         let mut out = String::new();
         let stream: Vec<String> = self
@@ -211,7 +212,7 @@ where
 {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
         let mut map = HashMap::new();
-        while stream.peekable().peek().is_some() {
+        while stream.remaining() > 1 {
             let key = K::parse_stream(stream)?;
             let value = V::parse_stream(stream)?;
             map.insert(key, value);

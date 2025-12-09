@@ -1,6 +1,6 @@
 use std::collections::VecDeque;
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use either::Either;
 use tokio::{sync::oneshot, time::Instant};
 

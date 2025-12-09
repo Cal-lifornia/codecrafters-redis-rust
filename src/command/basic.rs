@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
