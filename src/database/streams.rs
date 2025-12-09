@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use bytes::Bytes;
 use hashbrown::HashMap;
 
@@ -48,7 +50,14 @@ impl RedisDatabase {
                 stream.push(DatabaseStreamEntry { id, values });
                 Ok(id)
             }
-        } else if let Some(ms_time) = id.ms_time {
+        } else {
+            let ms_time = if let Some(ms_time) = id.ms_time {
+                ms_time
+            } else {
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)?
+                    .as_millis() as usize
+            };
             if let Some(last) = stream.last()
                 && last.id.ms_time == ms_time
             {
@@ -61,8 +70,6 @@ impl RedisDatabase {
                 stream.push(DatabaseStreamEntry { id, values });
                 Ok(id)
             }
-        } else {
-            todo!()
         }
     }
 }
@@ -73,4 +80,6 @@ pub enum DbStreamAddError {
     IdNotGreater,
     #[error("ERR The ID specified in XADD must be greater than 0-0")]
     IdZeroZero,
+    #[error("ERR Couldn't generate UNIX time: {0}")]
+    TimeError(#[from] std::time::SystemTimeError),
 }
