@@ -26,3 +26,24 @@ impl AsyncCommand for Rpush {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "LRANGE key start stop")]
+pub struct Lrange {
+    key: Bytes,
+    start: i64,
+    stop: i64,
+}
+
+#[async_trait]
+impl AsyncCommand for Lrange {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let list = ctx.db.range_list(&self.key, self.start, self.stop).await;
+        list.write_to_buf(buf);
+        Ok(())
+    }
+}

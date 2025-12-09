@@ -7,7 +7,7 @@ use tokio::{
 };
 
 use crate::{
-    command::{AsyncCommand, CommandError, Echo, Get, Rpush, Set},
+    command::{AsyncCommand, CommandError, Echo, Get, Lrange, Rpush, Set},
     context::Context,
     database::RedisDatabase,
     redis_stream::{ParseStream, RedisStream, StreamParseError},
@@ -64,6 +64,11 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
             }
             b"rpush" => {
                 Rpush::parse_stream(&mut redis_stream)?
+                    .run_command(&ctx, &mut buf)
+                    .await?
+            }
+            b"lrange" => {
+                Lrange::parse_stream(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
                     .await?
             }

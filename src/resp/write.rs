@@ -17,12 +17,6 @@ pub trait RedisWrite {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut);
 }
 
-impl<E: std::error::Error> RedisWrite for E {
-    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
-        RespType::simple_error(self.to_string()).write_to_buf(buf);
-    }
-}
-
 impl RedisWrite for RespType {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         match self {
@@ -63,5 +57,26 @@ pub struct NullBulkString;
 impl RedisWrite for NullBulkString {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         buf.put_slice(b"$-1\r\n");
+    }
+}
+
+impl RedisWrite for Bytes {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let len = self.len();
+        buf.put_u8(b'$');
+        buf.put_slice(len.to_string().as_bytes());
+        buf.put_slice(&CRLF);
+        buf.put_slice(self);
+        buf.put_slice(&CRLF);
+    }
+}
+
+impl<T: RedisWrite> RedisWrite for Vec<T> {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let len = self.len();
+        buf.put_u8(b'*');
+        buf.put_slice(len.to_string().as_bytes());
+        buf.put_slice(&CRLF);
+        self.iter().for_each(|resp| resp.write_to_buf(buf));
     }
 }
