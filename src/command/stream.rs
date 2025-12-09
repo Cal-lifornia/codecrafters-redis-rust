@@ -112,12 +112,30 @@ impl AsyncCommand for Xrange {
 
 #[derive(RedisCommand)]
 #[redis_command(
-    syntax = "XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]"
+    syntax = "XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]",
+    impl_parse
 )]
 pub struct Xread {
-    #[allow(unused)]
-    stream: SymbolStreams,
     queries: IndexMap<Bytes, Id>,
+}
+
+impl ParseStream for Xread {
+    fn parse_stream(
+        stream: &mut crate::redis_stream::RedisStream,
+    ) -> Result<Self, crate::redis_stream::StreamParseError> {
+        stream.parse::<SymbolStreams>()?;
+        let all_queries = stream.parse::<Vec<Bytes>>()?;
+        let (keys, ids) = all_queries.split_at(all_queries.len() / 2);
+        let mut res_ids = vec![];
+        for id in ids {
+            res_ids.push(Id::try_from_str(str::from_utf8(id).expect("valid utf-8"))?);
+        }
+        let mut map = IndexMap::new();
+        keys.iter().zip(res_ids.iter()).for_each(|(key, value)| {
+            map.insert(key.clone(), *value);
+        });
+        Ok(Self { queries: map })
+    }
 }
 
 #[async_trait]
@@ -128,7 +146,7 @@ impl AsyncCommand for Xread {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::command::CommandError> {
         let results = ctx.db.read_stream(&self.queries).await;
-        vec![results].write_to_buf(buf);
+        results.write_to_buf(buf);
         Ok(())
     }
 }

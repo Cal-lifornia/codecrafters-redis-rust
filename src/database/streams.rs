@@ -36,6 +36,8 @@ impl RedisWrite for DatabaseStreamEntry {
     }
 }
 
+pub type ReadStreamResult = IndexMap<Bytes, Vec<DatabaseStreamEntry>>;
+
 impl RedisDatabase {
     pub async fn add_stream(
         &self,
