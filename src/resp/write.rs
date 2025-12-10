@@ -2,7 +2,7 @@ use bytes::{BufMut, Bytes};
 use hashbrown::HashMap;
 use indexmap::IndexMap;
 
-use crate::{database::ReadStreamResult, resp::RespType};
+use crate::resp::RespType;
 
 impl RespType {
     pub fn simple_error(input: String) -> Self {

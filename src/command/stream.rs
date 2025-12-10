@@ -1,12 +1,15 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use bytes::Bytes;
 use either::Either;
 use hashbrown::HashMap;
-use indexmap::IndexMap;
 use redis_proc_macros::RedisCommand;
+use tokio::time::Instant;
 
-use crate::command::SymbolStreams;
 use crate::command::macros::Symbol;
+use crate::command::{SymbolBlock, SymbolStreams};
+use crate::database::StreamQuery;
 use crate::id::Id;
 use crate::redis_stream::ParseStream;
 use crate::resp::NullArray;
@@ -116,13 +119,21 @@ impl AsyncCommand for Xrange {
     impl_parse
 )]
 pub struct Xread {
-    queries: IndexMap<Bytes, Id>,
+    timeout: Option<u64>,
+    queries: Vec<StreamQuery>,
 }
 
 impl ParseStream for Xread {
     fn parse_stream(
         stream: &mut crate::redis_stream::RedisStream,
     ) -> Result<Self, crate::redis_stream::StreamParseError> {
+        let timeout = {
+            if stream.parse::<Option<SymbolBlock>>()?.is_some() {
+                Some(stream.parse::<u64>()?)
+            } else {
+                None
+            }
+        };
         stream.parse::<SymbolStreams>()?;
         let all_queries = stream.parse::<Vec<Bytes>>()?;
         let (keys, ids) = all_queries.split_at(all_queries.len() / 2);
@@ -130,11 +141,15 @@ impl ParseStream for Xread {
         for id in ids {
             res_ids.push(Id::try_from_str(str::from_utf8(id).expect("valid utf-8"))?);
         }
-        let mut map = IndexMap::new();
-        keys.iter().zip(res_ids.iter()).for_each(|(key, value)| {
-            map.insert(key.clone(), *value);
-        });
-        Ok(Self { queries: map })
+        let queries = keys
+            .iter()
+            .zip(res_ids.iter())
+            .map(|(key, id)| StreamQuery {
+                key: key.clone(),
+                id: *id,
+            })
+            .collect();
+        Ok(Self { timeout, queries })
     }
 }
 
@@ -145,8 +160,34 @@ impl AsyncCommand for Xread {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::command::CommandError> {
-        let results = ctx.db.read_stream(&self.queries).await;
-        results.write_to_buf(buf);
+        if let Some(timeout) = self.timeout {
+            let timeout = Instant::now() + Duration::from_millis(timeout);
+            let mut receiver = ctx.db.block_read_stream(&self.queries, timeout).await;
+
+            match tokio::time::timeout_at(timeout, receiver.recv()).await {
+                Ok(result) => {
+                    if let Some(result) = result {
+                        if result.is_empty() {
+                            NullArray.write_to_buf(buf);
+                        } else {
+                            result.write_to_buf(buf);
+                        }
+                    } else {
+                        let message = "ERR Channel closed";
+                        eprintln!("{message}");
+                        RespType::simple_error(message.into()).write_to_buf(buf);
+                    }
+                }
+                Err(_) => {
+                    NullArray.write_to_buf(buf);
+                }
+            }
+            receiver.close();
+        } else {
+            let results = ctx.db.read_stream(&self.queries).await;
+            results.write_to_buf(buf);
+        }
+
         Ok(())
     }
 }

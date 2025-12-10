@@ -1,15 +1,15 @@
 use std::time::SystemTime;
 
-use bytes::{BufMut, Bytes};
-use hashbrown::HashMap;
-use indexmap::IndexMap;
-
 use crate::{
     command::XrangeIdInput,
     database::RedisDatabase,
     id::{Id, WildcardID},
     resp::RedisWrite,
 };
+use bytes::{BufMut, Bytes};
+use hashbrown::HashMap;
+use indexmap::IndexMap;
+use tokio::{sync::mpsc, time::Instant};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct DatabaseStreamEntry {
@@ -45,44 +45,52 @@ impl RedisDatabase {
         id: WildcardID,
         values: HashMap<Bytes, Bytes>,
     ) -> Result<Id, DbStreamAddError> {
-        let mut streams = self.streams.write().await;
-        let stream = streams.entry(key).or_default();
-        if let Some(id) = Id::from_wildcard(id) {
-            if id.is_zero_zero() {
-                return Err(DbStreamAddError::IdZeroZero);
-            }
-            if let Some((last_id, _)) = stream.last() {
-                if &id > last_id {
+        let result = {
+            let mut streams = self.streams.write().await;
+            let stream = streams.entry(key.clone()).or_default();
+            if let Some(id) = Id::from_wildcard(id) {
+                if id.is_zero_zero() {
+                    return Err(DbStreamAddError::IdZeroZero);
+                }
+                if let Some((last_id, _)) = stream.last() {
+                    if &id > last_id {
+                        stream.insert(id, values);
+                        Ok(id)
+                    } else {
+                        Err(DbStreamAddError::IdNotGreater)
+                    }
+                } else {
+                    stream.insert(id, values);
+                    Ok(id)
+                }
+            } else {
+                let ms_time = if let Some(ms_time) = id.ms_time {
+                    ms_time
+                } else {
+                    SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)?
+                        .as_millis() as usize
+                };
+                if let Some((last_id, _)) = stream.last()
+                    && last_id.ms_time == ms_time
+                {
+                    let id = last_id.increment_sequence();
                     stream.insert(id, values);
                     Ok(id)
                 } else {
-                    Err(DbStreamAddError::IdNotGreater)
+                    let sequence = if ms_time == 0 { 1 } else { 0 };
+                    let id = Id { ms_time, sequence };
+                    stream.insert(id, values);
+                    Ok(id)
                 }
-            } else {
-                stream.insert(id, values);
-                Ok(id)
             }
-        } else {
-            let ms_time = if let Some(ms_time) = id.ms_time {
-                ms_time
-            } else {
-                SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)?
-                    .as_millis() as usize
-            };
-            if let Some((last_id, _)) = stream.last()
-                && last_id.ms_time == ms_time
-            {
-                let id = last_id.increment_sequence();
-                stream.insert(id, values);
-                Ok(id)
-            } else {
-                let sequence = if ms_time == 0 { 1 } else { 0 };
-                let id = Id { ms_time, sequence };
-                stream.insert(id, values);
-                Ok(id)
-            }
-        }
+        };
+        // println!(
+        //     "ADDED_KEY: {}; ADDED_ID: {id:#?}",
+        //     String::from_utf8(key.to_vec()).expect("valid utf-8")
+        // );
+        self.handle_stream_blocklist(&key).await;
+        result
     }
     pub async fn range_stream(
         &self,
@@ -142,15 +150,24 @@ impl RedisDatabase {
             vec![]
         }
     }
-    pub async fn read_stream(
-        &self,
-        queries: &IndexMap<Bytes, Id>,
-    ) -> IndexMap<Bytes, Vec<DatabaseStreamEntry>> {
+    pub async fn read_stream(&self, queries: &[StreamQuery]) -> ReadStreamResult {
         let streams = self.streams.read().await;
-        let mut out: IndexMap<Bytes, Vec<DatabaseStreamEntry>> = IndexMap::new();
-        for (key, id) in queries.iter() {
+        let mut out: ReadStreamResult = IndexMap::new();
+        for StreamQuery { key, id } in queries {
             if let Some(stream) = streams.get(key) {
-                let idx = stream.partition_point(|key, _| key >= id) - 1;
+                let idx = match stream.binary_search_by(|key, _| key.cmp(id)) {
+                    Ok(idx) => idx + 1,
+                    Err(idx) => idx,
+                };
+                // let results = stream
+                //     .iter()
+                //     .skip_while(|(map_id, _)| id > map_id)
+                //     .map(|(key, value)| DatabaseStreamEntry {
+                //         id: *key,
+                //         values: value.clone(),
+                //     })
+                //     .collect();
+                // out.insert(key.clone(), results);
                 if let Some(values) = stream.get_range(idx..) {
                     let results = values
                         .iter()
@@ -165,6 +182,59 @@ impl RedisDatabase {
         }
         out
     }
+
+    pub async fn block_read_stream(
+        &self,
+        queries: &[StreamQuery],
+        timeout: Instant,
+    ) -> mpsc::Receiver<ReadStreamResult> {
+        let (sender, receiver) = mpsc::channel::<ReadStreamResult>(10);
+        let mut blocklist = self.stream_blocklist.lock().await;
+        for StreamQuery { key, id } in queries {
+            blocklist.entry(key.clone()).or_default().insert(
+                *id,
+                StreamBlocker {
+                    sender: sender.clone(),
+                    timeout,
+                },
+            );
+        }
+        receiver
+    }
+
+    pub async fn handle_stream_blocklist(&self, key: &Bytes) {
+        let mut blockers = self.stream_blocklist.lock().await;
+        if let Some(waiters) = blockers.get_mut(key) {
+            for (id, blocker) in waiters {
+                let value = self
+                    .read_stream(&[StreamQuery {
+                        key: key.clone(),
+                        id: *id,
+                    }])
+                    .await;
+
+                if (Instant::now() <= blocker.timeout) && !blocker.sender.is_closed() {
+                    if let Err(err) = blocker.sender.send(value).await {
+                        eprintln!("ERROR sending blocklist {err:#?}");
+                        break;
+                    } else {
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct StreamBlocker {
+    sender: mpsc::Sender<ReadStreamResult>,
+    timeout: Instant,
+}
+
+pub struct StreamQuery {
+    pub key: Bytes,
+    pub id: Id,
 }
 
 #[derive(Debug, thiserror::Error)]

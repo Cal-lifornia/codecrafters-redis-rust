@@ -2,6 +2,7 @@ pub struct SymbolPlus;
 pub struct SymbolMinus;
 pub struct SymbolWildCard;
 pub struct SymbolStreams;
+pub struct SymbolBlock;
 
 // impl crate::redis_stream::ParseStream for SymbolMinus {
 //     fn parse_stream(
@@ -53,3 +54,4 @@ symbol_parse!(SymbolPlus, "+");
 symbol_parse!(SymbolMinus, "-");
 symbol_parse!(SymbolWildCard, "*");
 symbol_parse!(SymbolStreams, "streams".to_lowercase());
+symbol_parse!(SymbolBlock, "block".to_lowercase());

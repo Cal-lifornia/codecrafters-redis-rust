@@ -7,7 +7,7 @@ use crate::{
     resp::{RedisWrite, RespType},
 };
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct WildcardID {
     pub ms_time: Option<usize>,
     pub sequence: Option<usize>,

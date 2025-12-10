@@ -6,13 +6,13 @@ use indexmap::IndexMap;
 use tokio::sync::RwLock;
 
 use crate::{
-    database::{DatabaseString, ListBlocker},
+    database::{DatabaseString, ListBlocker, StreamBlocker},
     id::Id,
 };
 
 pub type DB<T> = Arc<RwLock<hashbrown::HashMap<Bytes, T>>>;
 
-pub type ListBlocklist = Arc<tokio::sync::Mutex<HashMap<Bytes, Vec<ListBlocker>>>>;
+pub type Blocklist<T> = Arc<tokio::sync::Mutex<HashMap<Bytes, T>>>;
 
 #[derive(Default)]
 pub struct RedisDatabase {
@@ -20,7 +20,8 @@ pub struct RedisDatabase {
     // pub(crate) nums: DB<i32>,
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
-    pub(crate) list_blocklist: ListBlocklist,
+    pub(crate) list_blocklist: Blocklist<Vec<ListBlocker>>,
+    pub(crate) stream_blocklist: Blocklist<IndexMap<Id, StreamBlocker>>,
 }
 
 impl RedisDatabase {
