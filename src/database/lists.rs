@@ -4,7 +4,10 @@ use bytes::Bytes;
 use either::Either;
 use tokio::{sync::oneshot, time::Instant};
 
-use crate::{database::RedisDatabase, resp::RedisWrite};
+use crate::{
+    database::{Blocker, RedisDatabase},
+    resp::RedisWrite,
+};
 
 impl RedisDatabase {
     pub async fn push_list(&self, key: &Bytes, values: Vec<Bytes>) -> i64 {
@@ -111,7 +114,7 @@ impl RedisDatabase {
         }
         let mut blocklist = self.list_blocklist.lock().await;
         let (sender, receiver) = oneshot::channel::<BlpopResponse>();
-        let waiter = ListBlocker { sender, timeout };
+        let waiter = Blocker { sender, timeout };
         blocklist.entry(key.clone()).or_default().push(waiter);
         Either::Right(receiver)
     }

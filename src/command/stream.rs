@@ -161,26 +161,35 @@ impl AsyncCommand for Xread {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::command::CommandError> {
         if let Some(timeout) = self.timeout {
-            let timeout = Instant::now() + Duration::from_millis(timeout);
+            let timeout = if timeout == 0 {
+                None
+            } else {
+                Some(Instant::now() + Duration::from_millis(timeout))
+            };
             let mut receiver = ctx.db.block_read_stream(&self.queries, timeout).await;
-
-            match tokio::time::timeout_at(timeout, receiver.recv()).await {
-                Ok(result) => {
-                    if let Some(result) = result {
-                        if result.is_empty() {
-                            NullArray.write_to_buf(buf);
-                        } else {
-                            result.write_to_buf(buf);
-                        }
-                    } else {
-                        let message = "ERR Channel closed";
-                        eprintln!("{message}");
-                        RespType::simple_error(message.into()).write_to_buf(buf);
+            let result = if let Some(timeout) = timeout {
+                match tokio::time::timeout_at(timeout, receiver.recv()).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        NullArray.write_to_buf(buf);
+                        return Ok(());
                     }
                 }
-                Err(_) => {
+            } else {
+                receiver.recv().await
+            };
+
+            if let Some(result) = result {
+                if result.is_empty() {
                     NullArray.write_to_buf(buf);
+                } else {
+                    result.write_to_buf(buf);
                 }
+            } else {
+                let message = "ERR Channel closed";
+                eprintln!("{message}");
+                RespType::simple_error(message.into()).write_to_buf(buf);
+                return Ok(());
             }
             receiver.close();
         } else {

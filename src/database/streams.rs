@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use crate::{
     command::XrangeIdInput,
-    database::RedisDatabase,
+    database::{Blocker, RedisDatabase},
     id::{Id, WildcardID},
     resp::RedisWrite,
 };
@@ -186,14 +186,14 @@ impl RedisDatabase {
     pub async fn block_read_stream(
         &self,
         queries: &[StreamQuery],
-        timeout: Instant,
+        timeout: Option<Instant>,
     ) -> mpsc::Receiver<ReadStreamResult> {
         let (sender, receiver) = mpsc::channel::<ReadStreamResult>(10);
         let mut blocklist = self.stream_blocklist.lock().await;
         for StreamQuery { key, id } in queries {
             blocklist.entry(key.clone()).or_default().insert(
                 *id,
-                StreamBlocker {
+                Blocker {
                     sender: sender.clone(),
                     timeout,
                 },
@@ -213,7 +213,7 @@ impl RedisDatabase {
                     }])
                     .await;
 
-                if (Instant::now() <= blocker.timeout) && !blocker.sender.is_closed() {
+                if !blocker.timed_out() && !blocker.sender.is_closed() {
                     if let Err(err) = blocker.sender.send(value).await {
                         eprintln!("ERROR sending blocklist {err:#?}");
                         break;
