@@ -1,8 +1,9 @@
-pub struct SymbolPlus;
-pub struct SymbolMinus;
-pub struct SymbolWildCard;
-pub struct SymbolStreams;
-pub struct SymbolBlock;
+// pub struct SymbolPlus;
+// pub struct SymbolMinus;
+// pub struct SymbolWildCard;
+// pub struct SymbolStreams;
+// pub struct SymbolBlock;
+// pub struct SymbolDollar;
 
 // impl crate::redis_stream::ParseStream for SymbolMinus {
 //     fn parse_stream(
@@ -26,12 +27,22 @@ pub mod macros {
     ["+"] => { $crate::command::SymbolPlus };
     ["-"] => { $crate::command::SymbolMinus };
     ["*"] => { $crate::command::SymbolWildCard };
+    ["$"] => { $crate::command::SymbolDollar };
 }
     pub(crate) use Symbol;
 }
 
 macro_rules! symbol_parse {
-    ($symbol:ty,$str:expr) => {
+    ($symbol:ident,$str:expr) => {
+        #[derive(Copy, Clone)]
+        pub struct $symbol;
+
+        impl std::fmt::Display for $symbol {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, $str)
+            }
+        }
+
         impl crate::redis_stream::ParseStream for $symbol {
             fn parse_stream(
                 stream: &mut crate::redis_stream::RedisStream,
@@ -53,5 +64,6 @@ macro_rules! symbol_parse {
 symbol_parse!(SymbolPlus, "+");
 symbol_parse!(SymbolMinus, "-");
 symbol_parse!(SymbolWildCard, "*");
-symbol_parse!(SymbolStreams, "streams".to_lowercase());
-symbol_parse!(SymbolBlock, "block".to_lowercase());
+symbol_parse!(SymbolStreams, "streams");
+symbol_parse!(SymbolBlock, "block");
+symbol_parse!(SymbolDollar, "$");

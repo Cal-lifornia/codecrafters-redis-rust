@@ -2,7 +2,7 @@ use bytes::{BufMut, Bytes};
 use hashbrown::HashMap;
 use indexmap::IndexMap;
 
-use crate::resp::RespType;
+use crate::{Pair, resp::RespType};
 
 impl RespType {
     pub fn simple_error(input: String) -> Self {
@@ -129,5 +129,13 @@ impl<K: RedisWrite, V: RedisWrite> RedisWrite for IndexMap<K, V> {
             key.write_to_buf(buf);
             value.write_to_buf(buf);
         });
+    }
+}
+
+impl<L: RedisWrite, R: RedisWrite> RedisWrite for Pair<L, R> {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        buf.put_slice(b"*2\r\n");
+        self.left().write_to_buf(buf);
+        self.right().write_to_buf(buf);
     }
 }

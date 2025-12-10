@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
 use bytes::Bytes;
+use either::Either;
 use hashbrown::HashMap;
 use indexmap::IndexMap;
 use tokio::{
@@ -9,7 +10,9 @@ use tokio::{
 };
 
 use crate::{
-    database::{BlpopResponse, DatabaseString, ListBlocker, ReadStreamResult, StreamBlocker},
+    Pair,
+    command::macros::Symbol,
+    database::{BlpopResponse, DatabaseString, ReadStreamResult},
     id::Id,
 };
 
@@ -32,6 +35,9 @@ impl<T> Blocker<T> {
     }
 }
 
+type StreamBlocklist =
+    Blocklist<Vec<Pair<Either<Id, Symbol!("$")>, Blocker<mpsc::Sender<ReadStreamResult>>>>>;
+
 #[derive(Default)]
 pub struct RedisDatabase {
     pub(crate) strings: DB<DatabaseString>,
@@ -39,7 +45,7 @@ pub struct RedisDatabase {
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
     pub(crate) list_blocklist: Blocklist<Vec<Blocker<oneshot::Sender<BlpopResponse>>>>,
-    pub(crate) stream_blocklist: Blocklist<IndexMap<Id, Blocker<mpsc::Sender<ReadStreamResult>>>>,
+    pub(crate) stream_blocklist: StreamBlocklist,
 }
 
 impl RedisDatabase {

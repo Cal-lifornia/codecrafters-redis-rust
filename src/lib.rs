@@ -7,3 +7,5 @@ mod redis_stream;
 mod resp;
 mod server;
 pub use server::run;
+mod pair;
+pub use pair::*;

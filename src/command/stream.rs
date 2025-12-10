@@ -121,6 +121,7 @@ impl AsyncCommand for Xrange {
 pub struct Xread {
     timeout: Option<u64>,
     queries: Vec<StreamQuery>,
+    contains_dollar: bool,
 }
 
 impl ParseStream for Xread {
@@ -138,8 +139,21 @@ impl ParseStream for Xread {
         let all_queries = stream.parse::<Vec<Bytes>>()?;
         let (keys, ids) = all_queries.split_at(all_queries.len() / 2);
         let mut res_ids = vec![];
+        let mut contains_dollar = false;
         for id in ids {
-            res_ids.push(Id::try_from_str(str::from_utf8(id).expect("valid utf-8"))?);
+            let value = str::from_utf8(id).expect("valid utf-8");
+            if value == "$" {
+                if timeout.is_some() {
+                    res_ids.push(Either::Right(Symbol!("$")));
+                    contains_dollar = true;
+                } else {
+                    return Err(crate::redis_stream::StreamParseError::Other(
+                        "'BLOCK' must be set to use '$'".into(),
+                    ));
+                }
+            } else {
+                res_ids.push(Either::Left(Id::try_from_str(value)?));
+            }
         }
         let queries = keys
             .iter()
@@ -149,7 +163,11 @@ impl ParseStream for Xread {
                 id: *id,
             })
             .collect();
-        Ok(Self { timeout, queries })
+        Ok(Self {
+            timeout,
+            queries,
+            contains_dollar,
+        })
     }
 }
 
@@ -166,37 +184,68 @@ impl AsyncCommand for Xread {
             } else {
                 Some(Instant::now() + Duration::from_millis(timeout))
             };
-            let mut receiver = ctx.db.block_read_stream(&self.queries, timeout).await;
-            let result = if let Some(timeout) = timeout {
-                match tokio::time::timeout_at(timeout, receiver.recv()).await {
-                    Ok(result) => result,
-                    Err(_) => {
-                        NullArray.write_to_buf(buf);
-                        return Ok(());
+
+            if self.contains_dollar {
+                self.block_read_stream(ctx, buf, timeout).await;
+            } else {
+                let mut results = vec![];
+                for query in &self.queries {
+                    if let Some(res) = ctx.db.read_stream(query).await {
+                        results.push(res);
                     }
                 }
-            } else {
-                receiver.recv().await
-            };
-
-            if let Some(result) = result {
-                if result.is_empty() {
-                    NullArray.write_to_buf(buf);
+                if results.is_empty() {
+                    self.block_read_stream(ctx, buf, timeout).await;
                 } else {
-                    result.write_to_buf(buf);
+                    results.write_to_buf(buf);
                 }
-            } else {
-                let message = "ERR Channel closed";
-                eprintln!("{message}");
-                RespType::simple_error(message.into()).write_to_buf(buf);
-                return Ok(());
             }
-            receiver.close();
         } else {
-            let results = ctx.db.read_stream(&self.queries).await;
-            results.write_to_buf(buf);
+            let mut results = vec![];
+            for query in &self.queries {
+                if let Some(res) = ctx.db.read_stream(query).await {
+                    results.push(res);
+                }
+            }
+            if !results.is_empty() {
+                results.write_to_buf(buf);
+            } else {
+                NullArray.write_to_buf(buf);
+            }
         }
 
         Ok(())
+    }
+}
+
+impl Xread {
+    async fn block_read_stream(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+        timeout: Option<Instant>,
+    ) {
+        let mut receiver = ctx.db.block_read_stream(&self.queries, timeout).await;
+        let result = if let Some(timeout) = timeout {
+            match tokio::time::timeout_at(timeout, receiver.recv()).await {
+                Ok(result) => result,
+                Err(_) => {
+                    NullArray.write_to_buf(buf);
+                    return;
+                }
+            }
+        } else {
+            receiver.recv().await
+        };
+
+        if let Some(result) = result {
+            vec![result].write_to_buf(buf);
+        } else {
+            let message = "ERR Channel closed";
+            eprintln!("{message}");
+            RespType::simple_error(message.into()).write_to_buf(buf);
+            return;
+        }
+        receiver.close();
     }
 }
