@@ -82,7 +82,7 @@ impl RedisDatabase {
             } else {
                 match &val.value {
                     Either::Left(value) => Some(value.clone()),
-                    Either::Right(num) => Some(Bytes::copy_from_slice(&num.to_be_bytes())),
+                    Either::Right(num) => Some(Bytes::from(num.to_string())),
                 }
             }
         } else {
