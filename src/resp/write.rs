@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use bytes::{BufMut, Bytes};
 use either::Either;
 use hashbrown::HashMap;
@@ -6,11 +8,11 @@ use indexmap::IndexMap;
 use crate::{Pair, resp::RespType};
 
 impl RespType {
-    pub fn simple_error(input: String) -> Self {
-        Self::SimpleError(Bytes::from(input))
+    pub fn simple_error(input: impl Display) -> Self {
+        Self::SimpleError(Bytes::from(input.to_string()))
     }
-    pub fn simple_string(input: String) -> Self {
-        Self::SimpleString(Bytes::from(input))
+    pub fn simple_string(input: impl Display) -> Self {
+        Self::SimpleString(Bytes::from(input.to_string()))
     }
 }
 

@@ -104,7 +104,7 @@ impl AsyncCommand for Set {
         ctx.db
             .set_kv(self.key.clone(), self.value.clone(), expires, keepttl)
             .await;
-        RespType::simple_string("OK".into()).write_to_buf(buf);
+        RespType::simple_string("OK").write_to_buf(buf);
         Ok(())
     }
 }
@@ -124,6 +124,8 @@ impl AsyncCommand for Incr {
     ) -> Result<(), crate::command::CommandError> {
         if let Some(val) = ctx.db.incr_value(self.key.clone()).await {
             RespType::Integer(val).write_to_buf(buf);
+        } else {
+            RespType::simple_error("ERR value is not an integer or out of range").write_to_buf(buf);
         }
         Ok(())
     }

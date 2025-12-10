@@ -55,6 +55,7 @@ pub struct Xrange {
     key: Bytes,
     start: Either<Symbol!("-"), XrangeIdInput>,
     end: Either<Symbol!("+"), XrangeIdInput>,
+    #[allow(unused)]
     count: Option<i64>,
 }
 pub enum XrangeIdInput {
@@ -243,7 +244,7 @@ impl Xread {
         } else {
             let message = "ERR Channel closed";
             eprintln!("{message}");
-            RespType::simple_error(message.into()).write_to_buf(buf);
+            RespType::simple_error(message).write_to_buf(buf);
             return;
         }
         receiver.close();

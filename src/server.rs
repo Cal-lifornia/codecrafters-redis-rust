@@ -59,7 +59,7 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
     let mut redis_stream = RedisStream::try_from(result)?;
     if let Some(next) = redis_stream.next() {
         match next.to_ascii_lowercase().as_slice() {
-            b"ping" => RespType::simple_string("PONG".into()).write_to_buf(&mut buf),
+            b"ping" => RespType::simple_string("PONG").write_to_buf(&mut buf),
             b"echo" => {
                 Echo::parse(&mut redis_stream)?
                     .run_command(&ctx, &mut buf)
