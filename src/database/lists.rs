@@ -145,21 +145,6 @@ impl RedisDatabase {
     }
 }
 
-pub struct ListBlocker {
-    pub sender: oneshot::Sender<BlpopResponse>,
-    pub timeout: Option<Instant>,
-}
-
-impl ListBlocker {
-    fn timed_out(&self) -> bool {
-        if let Some(timeout) = self.timeout {
-            Instant::now() > timeout
-        } else {
-            false
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct BlpopResponse {
     pub key: Bytes,

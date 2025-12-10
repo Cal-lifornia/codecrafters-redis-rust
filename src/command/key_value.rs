@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use async_trait::async_trait;
 use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 use tokio::time::Instant;
@@ -7,8 +8,28 @@ use tokio::time::Instant;
 use crate::{
     command::AsyncCommand,
     redis_stream::{ParseStream, RedisStream, StreamParseError},
-    resp::{RedisWrite, RespType},
+    resp::{NullBulkString, RedisWrite, RespType},
 };
+#[derive(RedisCommand)]
+#[redis_command(syntax = "GET key")]
+pub struct Get {
+    key: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Get {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        match ctx.db.get_string(&self.key).await {
+            Some(val) => RespType::BulkString(val).write_to_buf(buf),
+            None => NullBulkString.write_to_buf(buf),
+        }
+        Ok(())
+    }
+}
 
 #[derive(RedisCommand, Debug)]
 #[redis_command(
@@ -81,9 +102,29 @@ impl AsyncCommand for Set {
             }
         }
         ctx.db
-            .set_string(self.key.clone(), self.value.clone(), expires, keepttl)
+            .set_kv(self.key.clone(), self.value.clone(), expires, keepttl)
             .await;
         RespType::simple_string("OK".into()).write_to_buf(buf);
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "INCR key")]
+pub struct Incr {
+    key: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Incr {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        if let Some(val) = ctx.db.incr_value(self.key.clone()).await {
+            RespType::Integer(val).write_to_buf(buf);
+        }
         Ok(())
     }
 }

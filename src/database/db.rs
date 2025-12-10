@@ -12,7 +12,7 @@ use tokio::{
 use crate::{
     Pair,
     command::macros::Symbol,
-    database::{BlpopResponse, DatabaseString, ReadStreamResult},
+    database::{BlpopResponse, DatabaseValue, ReadStreamResult},
     id::Id,
 };
 
@@ -40,7 +40,7 @@ type StreamBlocklist =
 
 #[derive(Default)]
 pub struct RedisDatabase {
-    pub(crate) strings: DB<DatabaseString>,
+    pub(crate) key_value: DB<DatabaseValue>,
     // pub(crate) nums: DB<i32>,
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
@@ -50,7 +50,7 @@ pub struct RedisDatabase {
 
 impl RedisDatabase {
     pub async fn db_type(&self, key: &Bytes) -> Bytes {
-        let value = if self.strings.read().await.contains_key(key) {
+        let value = if self.key_value.read().await.contains_key(key) {
             "string"
         } else if self.streams.read().await.contains_key(key) {
             "stream"

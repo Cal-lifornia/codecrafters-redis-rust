@@ -1,4 +1,5 @@
 use bytes::{BufMut, Bytes};
+use either::Either;
 use hashbrown::HashMap;
 use indexmap::IndexMap;
 
@@ -137,5 +138,14 @@ impl<L: RedisWrite, R: RedisWrite> RedisWrite for Pair<L, R> {
         buf.put_slice(b"*2\r\n");
         self.left().write_to_buf(buf);
         self.right().write_to_buf(buf);
+    }
+}
+
+impl<L: RedisWrite, R: RedisWrite> RedisWrite for Either<L, R> {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        match self {
+            Either::Left(left) => left.write_to_buf(buf),
+            Either::Right(right) => right.write_to_buf(buf),
+        }
     }
 }
