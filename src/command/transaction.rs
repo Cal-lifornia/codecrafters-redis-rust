@@ -1,11 +1,11 @@
 use async_trait::async_trait;
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::BufMut;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
     command::AsyncCommand,
     redis_stream::ParseStream,
-    resp::{NullArray, RedisWrite, RespType},
+    resp::{RedisWrite, RespType},
 };
 
 #[derive(RedisCommand)]

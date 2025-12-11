@@ -68,3 +68,27 @@ impl AsyncCommand for TypeCmd {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "INFO ...")]
+pub struct Info {
+    query: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Info {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        match self.query.to_ascii_lowercase().as_slice() {
+            b"replication" => {
+                let info = ctx.replication.read().await;
+                info.write_to_buf(buf);
+            }
+            _ => todo!(),
+        }
+        Ok(())
+    }
+}

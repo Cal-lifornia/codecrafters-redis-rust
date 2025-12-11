@@ -9,7 +9,7 @@ use tokio::{
 
 use crate::{
     command::{CommandError, get_command},
-    context::Context,
+    context::{Context, ReplicationInfo},
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
     resp::{RedisWrite, RespType},
@@ -19,13 +19,16 @@ pub async fn run(port: Option<String>) -> std::io::Result<()> {
     let listener =
         TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
     let db = Arc::new(RedisDatabase::default());
-
+    let replication = Arc::new(RwLock::new(ReplicationInfo {
+        role: "master".into(),
+    }));
     loop {
         let db_clone = db.clone();
         let (mut socket, _) = listener.accept().await?;
         let ctx = Context {
             db: db_clone.clone(),
             transactions: Arc::new(RwLock::new(None)),
+            replication: replication.clone(),
         };
         tokio::spawn(async move {
             let mut buf = [0; 1024];

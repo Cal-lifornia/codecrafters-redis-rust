@@ -4,8 +4,8 @@ use bytes::Bytes;
 
 use crate::{
     command::{
-        Blpop, Discard, Echo, Exec, Get, Incr, LLen, Lpop, Lpush, Lrange, Multi, Ping, Rpush, Set,
-        TypeCmd, Xadd, Xrange, Xread,
+        Blpop, Discard, Echo, Exec, Get, Incr, Info, LLen, Lpop, Lpush, Lrange, Multi, Ping, Rpush,
+        Set, TypeCmd, Xadd, Xrange, Xread,
     },
     redis_stream::{ParseStream, RedisStream, StreamParseError},
     server::RedisError,
@@ -41,6 +41,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"multi" => Ok(Box::new(Multi {})),
         b"exec" => Ok(Box::new(Exec {})),
         b"discard" => Ok(Box::new(Discard {})),
+        b"info" => Ok(Box::new(Info::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
