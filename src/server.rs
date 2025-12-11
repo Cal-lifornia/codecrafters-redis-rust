@@ -15,13 +15,12 @@ use crate::{
     resp::{RedisWrite, RespType},
 };
 
-pub async fn run(port: Option<String>) -> std::io::Result<()> {
+pub async fn run(port: Option<String>, replica: Option<String>) -> std::io::Result<()> {
     let listener =
         TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
     let db = Arc::new(RedisDatabase::default());
-    let replication = Arc::new(RwLock::new(ReplicationInfo {
-        role: "master".into(),
-    }));
+    let role = if replica.is_some() { "slave" } else { "master" };
+    let replication = Arc::new(RwLock::new(ReplicationInfo { role: role.into() }));
     loop {
         let db_clone = db.clone();
         let (mut socket, _) = listener.accept().await?;
