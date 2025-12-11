@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::{command::RedisCommand, database::RedisDatabase};
 
 #[derive(Clone)]
 pub struct Context {
     pub db: Arc<RedisDatabase>,
-    pub transaction: Arc<RwLock<Option<Vec<RedisCommand>>>>,
+    pub transactions: Arc<RwLock<Option<Vec<RedisCommand>>>>,
+    // pub buffer: Arc<Mutex<BytesMut>>,
 }

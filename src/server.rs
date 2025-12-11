@@ -24,7 +24,7 @@ pub async fn run() -> std::io::Result<()> {
         let (mut socket, _) = listener.accept().await?;
         let ctx = Context {
             db: db_clone.clone(),
-            transaction: Arc::new(RwLock::new(None)),
+            transactions: Arc::new(RwLock::new(None)),
         };
         tokio::spawn(async move {
             let mut buf = [0; 1024];
@@ -58,9 +58,10 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
     let mut redis_stream = RedisStream::try_from(result)?;
     if let Some(next) = redis_stream.next() {
         let command = get_command(next, &mut redis_stream)?;
-        if command.name() != "multi"
-            && let Some(list) = ctx.transaction.write().await.as_mut()
+        if (command.name() != "multi" || command.name() != "exec")
+            && let Some(list) = ctx.transactions.write().await.as_mut()
         {
+            RespType::simple_string("QUEUED").write_to_buf(&mut buf);
             list.push(command);
         } else {
             command.run_command(&ctx, &mut buf).await?

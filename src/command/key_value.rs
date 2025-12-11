@@ -125,7 +125,7 @@ impl AsyncCommand for Incr {
         if let Some(val) = ctx.db.incr_value(self.key.clone()).await {
             RespType::Integer(val).write_to_buf(buf);
         } else {
-            RespType::simple_error("ERR value is not an integer or out of range").write_to_buf(buf);
+            RespType::simple_error("value is not an integer or out of range").write_to_buf(buf);
         }
         Ok(())
     }

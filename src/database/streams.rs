@@ -247,10 +247,10 @@ pub struct StreamQuery {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbStreamAddError {
-    #[error("ERR The ID specified in XADD is equal or smaller than the target stream top item")]
+    #[error("The ID specified in XADD is equal or smaller than the target stream top item")]
     IdNotGreater,
-    #[error("ERR The ID specified in XADD must be greater than 0-0")]
+    #[error("The ID specified in XADD must be greater than 0-0")]
     IdZeroZero,
-    #[error("ERR Couldn't generate UNIX time: {0}")]
+    #[error("Couldn't generate UNIX time: {0}")]
     TimeError(#[from] std::time::SystemTimeError),
 }

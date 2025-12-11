@@ -9,6 +9,7 @@ use crate::{Pair, resp::RespType};
 
 impl RespType {
     pub fn simple_error(input: impl Display) -> Self {
+        let input = format!("ERR {input}");
         Self::SimpleError(Bytes::from(input.to_string()))
     }
     pub fn simple_string(input: impl Display) -> Self {
