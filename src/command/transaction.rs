@@ -36,7 +36,7 @@ impl AsyncCommand for Multi {
     }
 }
 #[derive(RedisCommand)]
-#[redis_command(syntax = "Exec", no_parse)]
+#[redis_command(syntax = "DISCARD", no_parse)]
 pub struct Exec {}
 
 impl ParseStream for Exec {
@@ -71,6 +71,36 @@ impl AsyncCommand for Exec {
             *transactions = None;
         } else {
             RespType::simple_error("EXEC without MULTI").write_to_buf(buf);
+        }
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "DISCARD", no_parse)]
+pub struct Discard {}
+
+impl ParseStream for Discard {
+    fn parse_stream(
+        _stream: &mut crate::redis_stream::RedisStream,
+    ) -> Result<Self, crate::redis_stream::StreamParseError> {
+        Ok(Self {})
+    }
+}
+
+#[async_trait]
+impl AsyncCommand for Discard {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let mut transactions = ctx.transactions.write().await;
+        if transactions.is_some() {
+            *transactions = None;
+            RespType::simple_string("OK").write_to_buf(buf);
+        } else {
+            RespType::simple_error("DISCARD without MULTI").write_to_buf(buf);
         }
         Ok(())
     }
