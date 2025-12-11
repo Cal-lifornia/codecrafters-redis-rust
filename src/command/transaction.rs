@@ -1,10 +1,11 @@
 use async_trait::async_trait;
+use bytes::{BufMut, Bytes};
 use redis_proc_macros::RedisCommand;
 
 use crate::{
     command::AsyncCommand,
     redis_stream::ParseStream,
-    resp::{RedisWrite, RespType},
+    resp::{NullArray, RedisWrite, RespType},
 };
 
 #[derive(RedisCommand)]
@@ -55,9 +56,13 @@ impl AsyncCommand for Exec {
     ) -> Result<(), crate::command::CommandError> {
         let mut transactions = ctx.transactions.write().await;
         if let Some(ref cmds) = *transactions {
-            RespType::simple_string("OK").write_to_buf(buf);
-            for cmd in cmds {
-                cmd.run_command(ctx, buf).await?;
+            if cmds.is_empty() {
+                buf.put_slice(b"*0\r\n");
+            } else {
+                RespType::simple_string("OK").write_to_buf(buf);
+                for cmd in cmds {
+                    cmd.run_command(ctx, buf).await?;
+                }
             }
             *transactions = None;
         } else {
