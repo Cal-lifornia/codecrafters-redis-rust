@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bytes::{BufMut, Bytes};
+use bytes::{BufMut, Bytes, BytesMut};
 use redis_proc_macros::RedisCommand;
 
 use crate::{
@@ -59,7 +59,11 @@ impl AsyncCommand for Exec {
             if cmds.is_empty() {
                 buf.put_slice(b"*0\r\n");
             } else {
-                RespType::simple_string("OK").write_to_buf(buf);
+                // RespType::simple_string("OK").write_to_buf(buf);
+                let len = cmds.len();
+                buf.put_u8(b'*');
+                buf.put_slice(len.to_string().as_bytes());
+                buf.put_slice(b"\r\n");
                 for cmd in cmds {
                     cmd.run_command(ctx, buf).await?;
                 }
