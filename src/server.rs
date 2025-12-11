@@ -15,8 +15,9 @@ use crate::{
     resp::{RedisWrite, RespType},
 };
 
-pub async fn run() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:6379").await?;
+pub async fn run(port: Option<String>) -> std::io::Result<()> {
+    let listener =
+        TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
     let db = Arc::new(RedisDatabase::default());
 
     loop {
