@@ -8,10 +8,7 @@ use tokio::{
 };
 
 use crate::{
-    command::{
-        AsyncCommand, Blpop, Command, CommandError, Echo, Get, Incr, LLen, Lpop, Lpush, Lrange,
-        Rpush, Set, TypeCmd, Xadd, Xrange, Xread,
-    },
+    command::{CommandError, get_command},
     context::Context,
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
@@ -27,7 +24,7 @@ pub async fn run() -> std::io::Result<()> {
         let (mut socket, _) = listener.accept().await?;
         let ctx = Context {
             db: db_clone.clone(),
-            multi: Arc::new(RwLock::new(None)),
+            transaction: Arc::new(RwLock::new(None)),
         };
         tokio::spawn(async move {
             let mut buf = [0; 1024];
@@ -60,82 +57,10 @@ async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError>
     let (result, _) = RespType::from_utf8(stream)?;
     let mut redis_stream = RedisStream::try_from(result)?;
     if let Some(next) = redis_stream.next() {
-        let command: Box<dyn AsyncCommand + Sync + Send> =
-            match next.to_ascii_lowercase().as_slice() {
-                // b"ping" => RespType::simple_string("PONG"),
-                b"echo" => {
-                    Box::new(Echo::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"type" => {
-                    Box::new(TypeCmd::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"set" => {
-                    Box::new(Set::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"get" => {
-                    Box::new(Get::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"incr" => {
-                    Box::new(Incr::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"rpush" => {
-                    Box::new(Rpush::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"lrange" => {
-                    Box::new(Lrange::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"lpush" => {
-                    Box::new(Lpush::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"llen" => {
-                    Box::new(LLen::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"lpop" => {
-                    Box::new(Lpop::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"blpop" => {
-                    Box::new(Blpop::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"xadd" => {
-                    Box::new(Xadd::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"xrange" => {
-                    Box::new(Xrange::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                b"xread" => {
-                    Box::new(Xread::parse(&mut redis_stream)?)
-                    // .run_command(&ctx, &mut buf)
-                    // .await?
-                }
-                _ => todo!(),
-            };
-        if let Some(list) = ctx.multi.write().await.as_mut() {
+        let command = get_command(next, &mut redis_stream)?;
+        if command.name() != "multi"
+            && let Some(list) = ctx.transaction.write().await.as_mut()
+        {
             list.push(command);
         } else {
             command.run_command(&ctx, &mut buf).await?

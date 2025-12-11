@@ -24,18 +24,18 @@ impl syn::parse::Parse for RedisCmd {
                     syntax = Some(meta.value()?.parse()?);
                     return Ok(());
                 }
-                if meta.path.is_ident("impl_parse") {
+                if meta.path.is_ident("no_parse") {
                     impl_parse = false;
                     return Ok(());
                 }
                 Err(meta.error("expected 'syntax=\"..\"'"))
             })?;
         } else {
-            return Err(input.error("expected '#[redis_command(syntax=\"..\")'"));
+            return Err(input.error("expected '#[redis_command(\"..\")'"));
         }
 
         let Some(syntax) = syntax else {
-            return Err(input.error("expected '#[redis_command(syntax=\"..\")'"));
+            return Err(input.error("expected '#[redis_command(\"..\")'"));
         };
 
         input.parse::<syn::Visibility>()?;
@@ -86,10 +86,10 @@ impl RedisCmd {
         let name = ident.to_string().to_uppercase();
         let stream = quote! {
             impl crate::command::Command for #ident {
-                fn name() -> &'static str {
+                fn name(&self) -> &'static str {
                     #name
                 }
-                fn syntax() -> &'static str {
+                fn syntax(&self) -> &'static str {
                     #syntax
                 }
             }

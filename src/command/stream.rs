@@ -117,7 +117,7 @@ impl AsyncCommand for Xrange {
 #[derive(RedisCommand)]
 #[redis_command(
     syntax = "XREAD [COUNT count] [BLOCK milliseconds] STREAMS key [key ...] id [id ...]",
-    impl_parse
+    no_parse
 )]
 pub struct Xread {
     timeout: Option<u64>,

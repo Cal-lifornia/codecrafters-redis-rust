@@ -120,7 +120,7 @@ impl AsyncCommand for Lpop {
 }
 
 #[derive(RedisCommand, Debug, PartialEq)]
-#[redis_command(syntax = "BLPOP key [key ...] timeout", impl_parse)]
+#[redis_command(syntax = "BLPOP key [key ...] timeout", no_parse)]
 pub struct Blpop {
     keys: Vec<Bytes>,
     timeout: f64,

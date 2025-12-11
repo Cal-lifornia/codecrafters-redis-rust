@@ -1,21 +1,45 @@
 use std::fmt::Debug;
 
-use crate::redis_stream::{ParseStream, RedisStream, StreamParseError};
+use bytes::Bytes;
+
+use crate::{
+    command::{
+        Blpop, Echo, Get, Incr, LLen, Lpop, Lpush, Lrange, Multi, Ping, Rpush, Set, TypeCmd, Xadd,
+        Xrange, Xread,
+    },
+    redis_stream::{ParseStream, RedisStream, StreamParseError},
+    server::RedisError,
+};
 
 // pub type CmdAction = Box<dyn Fn(&mut Context) -> BoxFuture<Result<(), std::io::Error>>>;
 
-pub trait Command: ParseStream + Sized {
+pub type RedisCommand = Box<dyn Command + Send + Sync>;
+
+pub trait Command: AsyncCommand {
     #[allow(unused)]
-    fn name() -> &'static str;
-    fn syntax() -> &'static str;
-    fn error(kind: CommandErrorKind) -> CommandError {
-        CommandError {
-            syntax: Self::syntax(),
-            kind,
-        }
-    }
-    fn parse(stream: &mut RedisStream) -> Result<Self, CommandError> {
-        Self::parse_stream(stream).map_err(|err| Self::error(err.into()))
+    fn name(&self) -> &'static str;
+    fn syntax(&self) -> &'static str;
+}
+
+pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisCommand, RedisError> {
+    match value.to_ascii_lowercase().as_slice() {
+        b"ping" => Ok(Box::new(Ping {})),
+        b"echo" => Ok(Box::new(Echo::parse_stream(stream)?)),
+        b"type" => Ok(Box::new(TypeCmd::parse_stream(stream)?)),
+        b"set" => Ok(Box::new(Set::parse_stream(stream)?)),
+        b"get" => Ok(Box::new(Get::parse_stream(stream)?)),
+        b"incr" => Ok(Box::new(Incr::parse_stream(stream)?)),
+        b"rpush" => Ok(Box::new(Rpush::parse_stream(stream)?)),
+        b"lrange" => Ok(Box::new(Lrange::parse_stream(stream)?)),
+        b"lpush" => Ok(Box::new(Lpush::parse_stream(stream)?)),
+        b"llen" => Ok(Box::new(LLen::parse_stream(stream)?)),
+        b"lpop" => Ok(Box::new(Lpop::parse_stream(stream)?)),
+        b"blpop" => Ok(Box::new(Blpop::parse_stream(stream)?)),
+        b"xadd" => Ok(Box::new(Xadd::parse_stream(stream)?)),
+        b"xrange" => Ok(Box::new(Xrange::parse_stream(stream)?)),
+        b"xread" => Ok(Box::new(Xread::parse_stream(stream)?)),
+        b"multi" => Ok(Box::new(Multi {})),
+        _ => todo!(),
     }
 }
 
