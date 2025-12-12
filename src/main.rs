@@ -4,7 +4,6 @@ async fn main() -> std::io::Result<()> {
     println!("Logs from your program will appear here!");
 
     let mut args = std::env::args().skip(1);
-    dbg!(&args);
     let mut port = None::<String>;
     let mut replica_of = None::<String>;
     while let Some(arg) = args.next() {

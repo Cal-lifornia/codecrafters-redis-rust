@@ -16,8 +16,8 @@ use crate::{
 pub type RedisCommand = Box<dyn Command + Send + Sync>;
 
 pub trait Command: AsyncCommand {
-    #[allow(unused)]
     fn name(&self) -> &'static str;
+    #[allow(unused)]
     fn syntax(&self) -> &'static str;
 }
 

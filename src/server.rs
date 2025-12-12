@@ -19,8 +19,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> std::io::Resu
     let listener =
         TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
     let db = Arc::new(RedisDatabase::default());
-    let role = if replica.is_some() { "slave" } else { "master" };
-    let replication = Arc::new(RwLock::new(ReplicationInfo { role: role.into() }));
+    let replication = Arc::new(RwLock::new(ReplicationInfo::new(replica.is_none())));
     loop {
         let db_clone = db.clone();
         let (mut socket, _) = listener.accept().await?;
