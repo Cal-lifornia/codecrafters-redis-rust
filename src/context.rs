@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use either::Either;
 use rand::{Rng, distr::Alphanumeric};
 use tokio::sync::RwLock;
 
 use crate::{
     command::RedisCommand,
     database::RedisDatabase,
+    replica::{MainServer, Replica},
     resp::{RedisWrite, RespType},
 };
 
@@ -15,6 +17,7 @@ pub struct Context {
     pub db: Arc<RedisDatabase>,
     pub transactions: Arc<RwLock<Option<Vec<RedisCommand>>>>,
     pub replication: Arc<RwLock<ReplicationInfo>>,
+    pub role: Either<MainServer, Replica>,
     // pub buffer: Arc<Mutex<BytesMut>>,
 }
 

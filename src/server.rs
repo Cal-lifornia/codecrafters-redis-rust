@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use either::Either;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -12,14 +13,23 @@ use crate::{
     context::{Context, ReplicationInfo},
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
+    replica::{MainServer, Replica, ReplicaError},
     resp::{RedisWrite, RespType},
 };
 
-pub async fn run(port: Option<String>, replica: Option<String>) -> std::io::Result<()> {
+pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), RedisError> {
     let listener =
         TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
     let db = Arc::new(RedisDatabase::default());
     let replication = Arc::new(RwLock::new(ReplicationInfo::new(replica.is_none())));
+    let role = if let Some(main_address) = replica {
+        Either::Right(Replica::new(main_address).await?)
+    } else {
+        Either::Left(MainServer::default())
+    };
+    if let Either::Right(ref replica) = role {
+        replica.handshake().await?;
+    }
     loop {
         let db_clone = db.clone();
         let (mut socket, _) = listener.accept().await?;
@@ -27,6 +37,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> std::io::Resu
             db: db_clone.clone(),
             transactions: Arc::new(RwLock::new(None)),
             replication: replication.clone(),
+            role: role.clone(),
         };
         tokio::spawn(async move {
             let mut buf = [0; 1024];
@@ -85,6 +96,8 @@ pub enum RedisError {
     StreamParse(#[from] StreamParseError),
     #[error("{0}")]
     Io(#[from] std::io::Error),
+    #[error("{0}")]
+    Replica(#[from] ReplicaError),
     #[error("{0}")]
     Other(String),
 }

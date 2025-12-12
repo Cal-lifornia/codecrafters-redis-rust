@@ -4,6 +4,7 @@ mod database;
 mod id;
 mod macros;
 mod redis_stream;
+mod replica;
 mod resp;
 mod server;
 pub use server::run;

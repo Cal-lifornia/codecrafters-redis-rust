@@ -19,7 +19,11 @@ async fn main() -> std::io::Result<()> {
                             "invalid argument for --replicaof '<MASTER_HOST> <MASTER_PORT>'",
                         ));
                     };
-                    replica_of = Some(format!("{host}:{port}"));
+                    if host == "localhost" {
+                        replica_of = Some(format!("127.0.0.1:{port}"))
+                    } else {
+                        replica_of = Some(format!("{host}:{port}"));
+                    }
                 } else {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
@@ -35,5 +39,10 @@ async fn main() -> std::io::Result<()> {
             }
         }
     }
-    codecrafters_redis::run(port, replica_of).await
+    if let Err(err) = codecrafters_redis::run(port, replica_of).await {
+        eprintln!("ERR: {err:?}");
+        Err(std::io::Error::other(err))
+    } else {
+        Ok(())
+    }
 }
