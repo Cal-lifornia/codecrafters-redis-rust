@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RespType {
     SimpleString(Bytes),
     SimpleError(Bytes),

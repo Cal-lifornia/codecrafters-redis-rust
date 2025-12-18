@@ -54,12 +54,15 @@ impl Replica {
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
         }
-        // let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        if resp != RespType::simple_string("PONG") {
+            return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
+        }
+
         // let mut redis_stream = RedisStream::try_from(resp)?;
 
         // if let Some(next) = redis_stream.next() {
         //     if next.to_ascii_lowercase().as_slice() != b"pong" {
-        //         return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
         //     }
         // } else {
         //     return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
@@ -68,10 +71,10 @@ impl Replica {
         Ok(())
     }
 
-    // pub async fn read_main(&self) -> std::io::Result<Bytes> {
-    //     let mut reader = self.main_reader.write().await;
-    //     let mut buf = [0u8; 1024];
-    //     let n = reader.read(&mut buf).await?;
-    //     Ok(Bytes::copy_from_slice(&buf[0..n]))
-    // }
+    pub async fn read_main(&self) -> std::io::Result<Bytes> {
+        let mut reader = self.main_reader.write().await;
+        let mut buf = [0u8; 1024];
+        let n = reader.read(&mut buf).await?;
+        Ok(Bytes::copy_from_slice(&buf[0..n]))
+    }
 }
