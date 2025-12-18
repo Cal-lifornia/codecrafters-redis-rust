@@ -67,3 +67,24 @@ impl AsyncCommand for Replconf {
         }
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "PSYNC replicationid offset")]
+#[allow(dead_code)]
+pub struct Psync {
+    repl_id: Bytes,
+    offset: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Psync {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::command::CommandError> {
+        let info = ctx.replication.read().await;
+        RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
+        Ok(())
+    }
+}

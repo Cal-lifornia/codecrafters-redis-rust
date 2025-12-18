@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
 use rand::{Rng, distr::Alphanumeric};
@@ -147,7 +147,14 @@ impl Replica {
             writer.flush().await?;
         }
 
-        let (_, _) = RespType::from_utf8(&self.read_main().await?)?;
+        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        if let RespType::SimpleString(psync) = resp {
+            let results = String::from_utf8_lossy(&psync);
+            let args: Vec<&str> = results.split_terminator(' ').collect();
+            if let Some(repl_id) = &args.get(1) {
+                info.replication_id = repl_id.to_string();
+            }
+        }
         Ok(())
     }
 
