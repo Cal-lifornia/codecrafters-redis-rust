@@ -4,8 +4,8 @@ use bytes::Bytes;
 
 use crate::{
     command::{
-        Blpop, Discard, Echo, Exec, Get, Incr, Info, LLen, Lpop, Lpush, Lrange, Multi, Ping, Rpush,
-        Set, TypeCmd, Xadd, Xrange, Xread,
+        Blpop, Discard, Echo, Exec, Get, Incr, Info, LLen, Lpop, Lpush, Lrange, Multi, Ping,
+        Replconf, Rpush, Set, TypeCmd, Xadd, Xrange, Xread,
     },
     redis_stream::{ParseStream, RedisStream, StreamParseError},
     server::RedisError,
@@ -42,6 +42,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"exec" => Ok(Box::new(Exec {})),
         b"discard" => Ok(Box::new(Discard {})),
         b"info" => Ok(Box::new(Info::parse_stream(stream)?)),
+        b"replconf" => Ok(Box::new(Replconf::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
@@ -59,6 +60,12 @@ pub trait AsyncCommand {
 pub struct CommandError {
     syntax: &'static str,
     kind: CommandErrorKind,
+}
+
+impl CommandError {
+    pub fn new(syntax: &'static str, kind: CommandErrorKind) -> Self {
+        Self { syntax, kind }
+    }
 }
 
 impl std::error::Error for CommandError {}

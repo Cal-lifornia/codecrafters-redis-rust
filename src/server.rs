@@ -18,12 +18,12 @@ use crate::{
 };
 
 pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), RedisError> {
-    let listener =
-        TcpListener::bind(format! {"127.0.0.1:{}", port.unwrap_or("6379".into())}).await?;
+    let port = port.unwrap_or("6379".into());
+    let listener = TcpListener::bind(format! {"127.0.0.1:{}", port.clone()}).await?;
     let db = Arc::new(RedisDatabase::default());
     let replication = Arc::new(RwLock::new(ReplicationInfo::new(replica.is_none())));
     let role = if let Some(main_address) = replica {
-        Either::Right(Replica::new(main_address).await?)
+        Either::Right(Replica::new(main_address, port).await?)
     } else {
         Either::Left(MainServer::default())
     };
@@ -32,9 +32,12 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     }
     loop {
         let db_clone = db.clone();
-        let (mut socket, _) = listener.accept().await?;
+        let (socket, _) = listener.accept().await?;
+        let (mut read, write) = socket.into_split();
+        let writer = Arc::new(RwLock::new(write));
         let ctx = Context {
             db: db_clone.clone(),
+            writer,
             transactions: Arc::new(RwLock::new(None)),
             replication: replication.clone(),
             role: role.clone(),
@@ -42,7 +45,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
         tokio::spawn(async move {
             let mut buf = [0; 1024];
             loop {
-                let n = match socket.read(&mut buf).await {
+                let n = match read.read(&mut buf).await {
                     Ok(0) => return,
                     Ok(n) => n,
                     Err(err) => {
@@ -59,7 +62,10 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
                         results.into()
                     }
                 };
-                socket.write_all(&results).await.expect("valid read");
+                {
+                    let mut writer = ctx.writer.write().await;
+                    writer.write_all(&results).await.expect("valid read");
+                }
             }
         });
     }

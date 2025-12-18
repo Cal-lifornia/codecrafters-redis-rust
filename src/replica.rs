@@ -11,8 +11,6 @@ use tokio::{
 };
 
 use crate::{
-    command::get_command,
-    redis_stream::RedisStream,
     resp::{RedisWrite, RespType},
     server::RedisError,
 };
@@ -25,17 +23,18 @@ pub enum ReplicaError {
 
 #[derive(Default, Clone)]
 pub struct MainServer {
-    replicas: Arc<RwLock<Option<Vec<TcpStream>>>>,
+    pub replicas: Arc<RwLock<Vec<Arc<RwLock<OwnedWriteHalf>>>>>,
 }
 
 #[derive(Clone)]
 pub struct Replica {
     main_reader: Arc<RwLock<OwnedReadHalf>>,
     main_writer: Arc<RwLock<OwnedWriteHalf>>,
+    port: String,
 }
 
 impl Replica {
-    pub async fn new(main_address: String) -> std::io::Result<Self> {
+    pub async fn new(main_address: String, port: String) -> std::io::Result<Self> {
         println!("MAIN_ADDRESS: {main_address}");
         let stream = TcpStream::connect(main_address).await?;
         // stream.write_all(b"TEST").await?;
@@ -43,6 +42,7 @@ impl Replica {
         Ok(Self {
             main_reader: Arc::new(RwLock::new(main_reader)),
             main_writer: Arc::new(RwLock::new(main_writer)),
+            port,
         })
     }
     pub async fn handshake(&self) -> Result<(), RedisError> {
@@ -59,15 +59,45 @@ impl Replica {
             return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
         }
 
-        // let mut redis_stream = RedisStream::try_from(resp)?;
+        // Write first REPLCONF
+        {
+            let mut writer = self.main_writer.write().await;
+            let mut write_buf = BytesMut::new();
+            println!("WRITING TO MAIN");
+            vec![
+                (Bytes::from("REPLCONF")),
+                Bytes::from("listening-port"),
+                Bytes::from(self.port.clone()),
+            ]
+            .write_to_buf(&mut write_buf);
+            writer.write_all(&write_buf).await?;
+            writer.flush().await?;
+        }
 
-        // if let Some(next) = redis_stream.next() {
-        //     if next.to_ascii_lowercase().as_slice() != b"pong" {
-        //     }
-        // } else {
-        //     return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
-        // }
+        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        if resp != RespType::simple_string("OK") {
+            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        }
 
+        // Write second REPLCONF
+        {
+            let mut writer = self.main_writer.write().await;
+            let mut write_buf = BytesMut::new();
+            println!("WRITING TO MAIN");
+            vec![
+                (Bytes::from("REPLCONF")),
+                Bytes::from("capa"),
+                Bytes::from("psync2"),
+            ]
+            .write_to_buf(&mut write_buf);
+            writer.write_all(&write_buf).await?;
+            writer.flush().await?;
+        }
+
+        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        if resp != RespType::simple_string("OK") {
+            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        }
         Ok(())
     }
 
