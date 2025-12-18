@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use rand::{Rng, distr::Alphanumeric};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -14,6 +15,44 @@ use crate::{
     resp::{RedisWrite, RespType},
     server::RedisError,
 };
+pub struct ReplicationInfo {
+    pub role: String,
+    pub replication_id: String,
+    pub offset: i64,
+}
+
+impl ReplicationInfo {
+    pub fn new(master: bool) -> Self {
+        let role = if master { "master" } else { "slave" };
+        if master {
+            let replication_id = (0..40)
+                .map(|_| rand::rng().sample(Alphanumeric) as char)
+                .collect();
+            Self {
+                role: role.into(),
+                replication_id,
+                offset: 0,
+            }
+        } else {
+            Self {
+                role: role.into(),
+                replication_id: "?".into(),
+                offset: -1,
+            }
+        }
+    }
+}
+
+impl RedisWrite for ReplicationInfo {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        let output = format!(
+            "role:{}\nmaster_replid:{}\nmaster_repl_offset:{}\n",
+            self.role, self.replication_id, self.offset
+        );
+
+        RespType::BulkString(Bytes::from(output)).write_to_buf(buf);
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReplicaError {
@@ -45,7 +84,7 @@ impl Replica {
             port,
         })
     }
-    pub async fn handshake(&self) -> Result<(), RedisError> {
+    pub async fn handshake(&self, info: &mut ReplicationInfo) -> Result<(), RedisError> {
         {
             let mut writer = self.main_writer.write().await;
             let mut write_buf = BytesMut::new();
@@ -93,11 +132,22 @@ impl Replica {
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
         }
-
-        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
-        if resp != RespType::simple_string("OK") {
-            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        // Write PSYNC
+        {
+            let mut writer = self.main_writer.write().await;
+            let mut write_buf = BytesMut::new();
+            println!("WRITING TO MAIN");
+            vec![
+                (Bytes::from("PSYNC")),
+                Bytes::from(info.replication_id.clone()),
+                Bytes::from(info.offset.to_string()),
+            ]
+            .write_to_buf(&mut write_buf);
+            writer.write_all(&write_buf).await?;
+            writer.flush().await?;
         }
+
+        let (_, _) = RespType::from_utf8(&self.read_main().await?)?;
         Ok(())
     }
 

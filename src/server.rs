@@ -10,10 +10,10 @@ use tokio::{
 
 use crate::{
     command::{CommandError, get_command},
-    context::{Context, ReplicationInfo},
+    context::Context,
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
-    replica::{MainServer, Replica, ReplicaError},
+    replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
     resp::{RedisWrite, RespType},
 };
 
@@ -21,15 +21,16 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     let port = port.unwrap_or("6379".into());
     let listener = TcpListener::bind(format! {"127.0.0.1:{}", port.clone()}).await?;
     let db = Arc::new(RedisDatabase::default());
-    let replication = Arc::new(RwLock::new(ReplicationInfo::new(replica.is_none())));
+    let mut info = ReplicationInfo::new(replica.is_none());
     let role = if let Some(main_address) = replica {
         Either::Right(Replica::new(main_address, port).await?)
     } else {
         Either::Left(MainServer::default())
     };
     if let Either::Right(ref replica) = role {
-        replica.handshake().await?;
+        replica.handshake(&mut info).await?;
     }
+    let replication = Arc::new(RwLock::new(info));
     loop {
         let db_clone = db.clone();
         let (socket, _) = listener.accept().await?;
