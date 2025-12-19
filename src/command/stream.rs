@@ -36,7 +36,7 @@ impl AsyncCommand for Xadd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         match ctx
             .db
             .add_stream(self.key.clone(), self.id, self.values.clone())
@@ -93,7 +93,7 @@ impl AsyncCommand for Xrange {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let start = if let Either::Right(start) = &self.start {
             Some(start)
         } else {
@@ -178,7 +178,7 @@ impl AsyncCommand for Xread {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         if let Some(timeout) = self.timeout {
             let timeout = if timeout == 0 {
                 None

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use either::Either;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
     sync::RwLock,
 };
@@ -36,6 +36,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
         let (socket, _) = listener.accept().await?;
         let (mut read, write) = socket.into_split();
         let writer = Arc::new(RwLock::new(write));
+        // let mut reader = BufReader::new(read);
         let ctx = Context {
             db: db_clone.clone(),
             writer,
@@ -44,8 +45,8 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
             role: role.clone(),
         };
         tokio::spawn(async move {
-            let mut buf = [0; 1024];
             loop {
+                let mut buf = [0u8; 1024];
                 let n = match read.read(&mut buf).await {
                     Ok(0) => return,
                     Ok(n) => n,
@@ -54,7 +55,15 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
                         return;
                     }
                 };
-                let results = match handle_stream(ctx.clone(), &buf[0..n]).await {
+
+                let input = match RespType::async_read(&mut BufReader::new(&buf[0..n])).await {
+                    Ok(input) => input,
+                    Err(err) => {
+                        eprintln!("failed to parse input; {err}");
+                        return;
+                    }
+                };
+                let results = match handle_stream(ctx.clone(), input).await {
                     Ok(results) => results,
                     Err(err) => {
                         let mut results = BytesMut::new();
@@ -72,10 +81,9 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     }
 }
 
-async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<Bytes, RedisError> {
+async fn handle_stream(ctx: Context, input: RespType) -> Result<Bytes, RedisError> {
+    let mut redis_stream = RedisStream::try_from(input)?;
     let mut buf = BytesMut::new();
-    let (result, _) = RespType::from_utf8(stream)?;
-    let mut redis_stream = RedisStream::try_from(result)?;
     if let Some(next) = redis_stream.next() {
         let command = get_command(next, &mut redis_stream)?;
         if (!matches!(

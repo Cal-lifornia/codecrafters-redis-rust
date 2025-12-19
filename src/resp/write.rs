@@ -49,12 +49,18 @@ impl RedisWrite for RespType {
                 buf.put_slice(bytes);
                 buf.put_slice(&CRLF);
             }
+            RespType::NullBulkString => {
+                buf.put_slice(b"$-1\r\n");
+            }
             RespType::Array(resp_types) => {
                 let len = resp_types.len();
                 buf.put_u8(b'*');
                 buf.put_slice(len.to_string().as_bytes());
                 buf.put_slice(&CRLF);
                 resp_types.iter().for_each(|resp| resp.write_to_buf(buf));
+            }
+            RespType::NullArray => {
+                buf.put_slice(b"*-1\r\n");
             }
         }
     }

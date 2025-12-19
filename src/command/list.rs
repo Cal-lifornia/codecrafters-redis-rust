@@ -24,7 +24,7 @@ impl AsyncCommand for Rpush {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let len = ctx.db.push_list(&self.key, self.values.clone()).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -45,7 +45,7 @@ impl AsyncCommand for Lrange {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let list = ctx.db.range_list(&self.key, self.start, self.stop).await;
         list.write_to_buf(buf);
         Ok(())
@@ -65,7 +65,7 @@ impl AsyncCommand for Lpush {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let len = ctx.db.prepend_list(&self.key, self.values.clone()).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -84,7 +84,7 @@ impl AsyncCommand for LLen {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let len = ctx.db.list_len(&self.key).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -104,7 +104,7 @@ impl AsyncCommand for Lpop {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let list = ctx.db.pop_list(&self.key, self.count).await;
         if !list.is_empty() {
             if self.count.is_some() {
@@ -145,7 +145,7 @@ impl AsyncCommand for Blpop {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let timeout = if self.timeout == 0.0 {
             None
         } else {

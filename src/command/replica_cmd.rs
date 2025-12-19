@@ -1,10 +1,10 @@
 use async_trait::async_trait;
 use bytes::Bytes;
-use either::Either;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
     command::{AsyncCommand, Command, CommandError},
+    rdb::RdbFile,
     redis_stream::StreamParseError,
     resp::{RedisWrite, RespType},
 };
@@ -21,7 +21,7 @@ impl AsyncCommand for Replconf {
         &self,
         _ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let mut args = self.args.iter();
         match args.next() {
             Some(arg) => match arg.to_ascii_lowercase().as_slice() {
@@ -33,7 +33,8 @@ impl AsyncCommand for Replconf {
                         Err(CommandError::new(
                             self.syntax(),
                             StreamParseError::Expected("port".into(), "empty".into()).into(),
-                        ))
+                        )
+                        .into())
                     }
                 }
                 b"capa" => {
@@ -49,21 +50,19 @@ impl AsyncCommand for Replconf {
                                     String::from_utf8_lossy(next).into(),
                                 )
                                 .into(),
-                            ))
+                            )
+                            .into())
                         }
                     } else {
-                        Err(CommandError::new(
-                            self.syntax(),
-                            StreamParseError::EmptyArg.into(),
-                        ))
+                        Err(
+                            CommandError::new(self.syntax(), StreamParseError::EmptyArg.into())
+                                .into(),
+                        )
                     }
                 }
                 _ => todo!(),
             },
-            None => Err(CommandError::new(
-                self.syntax(),
-                StreamParseError::EmptyArg.into(),
-            )),
+            None => Err(CommandError::new(self.syntax(), StreamParseError::EmptyArg.into()).into()),
         }
     }
 }
@@ -82,9 +81,11 @@ impl AsyncCommand for Psync {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let info = ctx.replication.read().await;
         RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
+        let rdb_file = RdbFile::open_file("static/empty.rdb").await?;
+        rdb_file.write_to_buf(buf);
         Ok(())
     }
 }

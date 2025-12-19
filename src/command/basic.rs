@@ -26,7 +26,7 @@ impl AsyncCommand for Ping {
         &self,
         _ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         RespType::simple_string("PONG").write_to_buf(buf);
         Ok(())
     }
@@ -44,7 +44,7 @@ impl AsyncCommand for Echo {
         &self,
         _ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         self.message.write_to_buf(buf);
         Ok(())
     }
@@ -62,7 +62,7 @@ impl AsyncCommand for TypeCmd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let value = ctx.db.db_type(&self.key).await;
         RespType::SimpleString(value).write_to_buf(buf);
         Ok(())
@@ -81,7 +81,7 @@ impl AsyncCommand for Info {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         match self.query.to_ascii_lowercase().as_slice() {
             b"replication" => {
                 let info = ctx.replication.read().await;

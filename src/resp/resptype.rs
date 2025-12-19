@@ -6,7 +6,9 @@ pub enum RespType {
     SimpleError(Bytes),
     Integer(i64),
     BulkString(Bytes),
+    NullBulkString,
     Array(Vec<RespType>),
+    NullArray,
 }
 
 // pub struct RedisSimpleString(Bytes);

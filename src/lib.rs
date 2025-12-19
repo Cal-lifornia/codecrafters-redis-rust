@@ -3,6 +3,7 @@ mod context;
 mod database;
 mod id;
 mod macros;
+mod rdb;
 mod redis_stream;
 mod replica;
 mod resp;

@@ -22,7 +22,7 @@ impl AsyncCommand for Get {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         match ctx.db.get_string(&self.key).await {
             Some(val) => RespType::BulkString(val).write_to_buf(buf),
             None => NullBulkString.write_to_buf(buf),
@@ -79,7 +79,7 @@ impl AsyncCommand for Set {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let mut expires = None::<Instant>;
         let mut keepttl = false;
         if let Some(expiry) = &self.expiry {
@@ -121,7 +121,7 @@ impl AsyncCommand for Incr {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         if let Some(val) = ctx.db.incr_value(self.key.clone()).await {
             RespType::Integer(val).write_to_buf(buf);
         } else {

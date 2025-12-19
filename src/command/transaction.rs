@@ -26,7 +26,7 @@ impl AsyncCommand for Multi {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let mut transaction = ctx.transactions.write().await;
         if transaction.is_none() {
             *transaction = Some(vec![]);
@@ -53,7 +53,7 @@ impl AsyncCommand for Exec {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let mut transactions = ctx.transactions.write().await;
         if let Some(ref cmds) = *transactions {
             if cmds.is_empty() {
@@ -94,7 +94,7 @@ impl AsyncCommand for Discard {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError> {
+    ) -> Result<(), crate::server::RedisError> {
         let mut transactions = ctx.transactions.write().await;
         if transactions.is_some() {
             *transactions = None;

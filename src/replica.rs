@@ -1,9 +1,9 @@
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use rand::{Rng, distr::Alphanumeric};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -12,6 +12,7 @@ use tokio::{
 };
 
 use crate::{
+    rdb::RdbFile,
     resp::{RedisWrite, RespType},
     server::RedisError,
 };
@@ -62,12 +63,13 @@ pub enum ReplicaError {
 
 #[derive(Default, Clone)]
 pub struct MainServer {
+    #[allow(unused)]
     pub replicas: Arc<RwLock<Vec<Arc<RwLock<OwnedWriteHalf>>>>>,
 }
 
 #[derive(Clone)]
 pub struct Replica {
-    main_reader: Arc<RwLock<OwnedReadHalf>>,
+    main_reader: Arc<RwLock<BufReader<OwnedReadHalf>>>,
     main_writer: Arc<RwLock<OwnedWriteHalf>>,
     port: String,
 }
@@ -79,7 +81,7 @@ impl Replica {
         // stream.write_all(b"TEST").await?;
         let (main_reader, main_writer) = stream.into_split();
         Ok(Self {
-            main_reader: Arc::new(RwLock::new(main_reader)),
+            main_reader: Arc::new(RwLock::new(BufReader::new(main_reader))),
             main_writer: Arc::new(RwLock::new(main_writer)),
             port,
         })
@@ -88,7 +90,6 @@ impl Replica {
         {
             let mut writer = self.main_writer.write().await;
             let mut write_buf = BytesMut::new();
-            println!("WRITING TO MAIN");
             vec![(Bytes::from("PING"))].write_to_buf(&mut write_buf);
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
@@ -102,7 +103,6 @@ impl Replica {
         {
             let mut writer = self.main_writer.write().await;
             let mut write_buf = BytesMut::new();
-            println!("WRITING TO MAIN");
             vec![
                 (Bytes::from("REPLCONF")),
                 Bytes::from("listening-port"),
@@ -122,7 +122,6 @@ impl Replica {
         {
             let mut writer = self.main_writer.write().await;
             let mut write_buf = BytesMut::new();
-            println!("WRITING TO MAIN");
             vec![
                 (Bytes::from("REPLCONF")),
                 Bytes::from("capa"),
@@ -132,11 +131,14 @@ impl Replica {
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
         }
+        let (resp, _) = RespType::from_utf8(&self.read_line().await?)?;
+        if resp != RespType::simple_string("OK") {
+            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        }
         // Write PSYNC
         {
             let mut writer = self.main_writer.write().await;
             let mut write_buf = BytesMut::new();
-            println!("WRITING TO MAIN");
             vec![
                 (Bytes::from("PSYNC")),
                 Bytes::from(info.replication_id.clone()),
@@ -147,7 +149,7 @@ impl Replica {
             writer.flush().await?;
         }
 
-        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
+        let resp = RespType::async_read(&mut *self.main_reader.write().await).await?;
         if let RespType::SimpleString(psync) = resp {
             let results = String::from_utf8_lossy(&psync);
             let args: Vec<&str> = results.split_terminator(' ').collect();
@@ -155,6 +157,7 @@ impl Replica {
                 info.replication_id = repl_id.to_string();
             }
         }
+        let _ = RdbFile::read_from_redis_stream(&mut *self.main_reader.write().await).await?;
         Ok(())
     }
 
@@ -163,5 +166,10 @@ impl Replica {
         let mut buf = [0u8; 1024];
         let n = reader.read(&mut buf).await?;
         Ok(Bytes::copy_from_slice(&buf[0..n]))
+    }
+    pub async fn read_line(&self) -> std::io::Result<Bytes> {
+        let mut buf = String::new();
+        let _ = self.main_reader.write().await.read_line(&mut buf).await?;
+        Ok(Bytes::from(buf))
     }
 }

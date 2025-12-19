@@ -54,7 +54,7 @@ pub trait AsyncCommand {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::command::CommandError>;
+    ) -> Result<(), crate::server::RedisError>;
 }
 
 #[derive(Debug)]
