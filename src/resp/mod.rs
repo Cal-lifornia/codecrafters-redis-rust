@@ -1,4 +1,5 @@
 mod async_read;
+mod decode;
 mod read;
 mod resptype;
 pub use resptype::*;

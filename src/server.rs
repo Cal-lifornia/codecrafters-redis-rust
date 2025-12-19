@@ -13,7 +13,7 @@ use crate::{
     context::Context,
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
-    replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
+    replica::{MainServer, RedisRole, Replica, ReplicaError, ReplicationInfo},
     resp::{RedisWrite, RespType},
 };
 
@@ -31,6 +31,11 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
         replica.handshake(&mut info).await?;
     }
     let replication = Arc::new(RwLock::new(info));
+    if let Either::Right(ref replica) = role {
+        replica
+            .handle_main_stream(db.clone(), replication.clone(), role.clone())
+            .await;
+    }
     loop {
         let db_clone = db.clone();
         let (socket, _) = listener.accept().await?;
@@ -56,7 +61,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
                     }
                 };
 
-                if let Err(err) = handle_stream(ctx.clone(), &buf[0..n]).await {
+                if let Err(err) = handle_command(ctx.clone(), &buf[0..n]).await {
                     let mut results = BytesMut::new();
                     eprintln!("ERROR: {err}");
                     RespType::simple_error(err.to_string()).write_to_buf(&mut results);
@@ -66,7 +71,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     }
 }
 
-async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<(), RedisError> {
+pub async fn handle_command(ctx: Context, stream: &[u8]) -> Result<(), RedisError> {
     let input = RespType::async_read(&mut BufReader::new(stream)).await?;
     let mut redis_stream = RedisStream::try_from(input)?;
     let mut buf = BytesMut::new();

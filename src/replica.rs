@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use either::Either;
 use rand::{Rng, distr::Alphanumeric};
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -13,10 +14,15 @@ use tokio::{
 };
 
 use crate::{
+    context::Context,
+    database::RedisDatabase,
     rdb::RdbFile,
     resp::{RedisWrite, RespType},
-    server::RedisError,
+    server::{RedisError, handle_command},
 };
+
+pub type RedisRole = Either<MainServer, Replica>;
+
 pub struct ReplicationInfo {
     pub role: String,
     pub replication_id: String,
@@ -95,8 +101,8 @@ impl MainServer {
 
 #[derive(Clone)]
 pub struct Replica {
-    main_reader: Arc<RwLock<BufReader<OwnedReadHalf>>>,
-    main_writer: Arc<RwLock<OwnedWriteHalf>>,
+    pub main_reader: Arc<RwLock<BufReader<OwnedReadHalf>>>,
+    pub main_writer: Arc<RwLock<OwnedWriteHalf>>,
     port: String,
 }
 
@@ -185,6 +191,41 @@ impl Replica {
         }
         let _ = RdbFile::read_from_redis_stream(&mut *self.main_reader.write().await).await?;
         Ok(())
+    }
+
+    pub async fn handle_main_stream(
+        &self,
+        db: Arc<RedisDatabase>,
+        info: Arc<RwLock<ReplicationInfo>>,
+        role: RedisRole,
+    ) {
+        let ctx = Context {
+            db,
+            writer: self.main_writer.clone(),
+            transactions: Arc::new(RwLock::new(None)),
+            replication: info,
+            role,
+        };
+        let reader_arc = Arc::clone(&self.main_reader);
+
+        tokio::spawn(async move {
+            let mut reader = reader_arc.write().await;
+            let mut buf = [0u8; 1024];
+            let n = match reader.read(&mut buf).await {
+                Ok(0) => return,
+                Ok(n) => n,
+                Err(err) => {
+                    eprintln!("failed to read from socket; err = {:?}", err);
+                    return;
+                }
+            };
+
+            if let Err(err) = handle_command(ctx.clone(), &buf[0..n]).await {
+                let mut results = BytesMut::new();
+                eprintln!("ERROR: {err}");
+                RespType::simple_error(err.to_string()).write_to_buf(&mut results);
+            }
+        });
     }
 
     pub async fn read_main(&self) -> std::io::Result<Bytes> {
