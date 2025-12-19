@@ -5,6 +5,7 @@ pub struct RedisCmd {
     // attrs: Vec<syn::Attribute>,
     syntax: syn::LitStr,
     impl_parse: bool,
+    write: bool,
     ident: syn::Ident,
     fields: syn::punctuated::Punctuated<syn::Field, syn::Token![,]>,
 }
@@ -14,6 +15,7 @@ impl syn::parse::Parse for RedisCmd {
         let attrs = input.call(syn::Attribute::parse_outer)?;
         let mut syntax = None::<syn::LitStr>;
         let mut impl_parse = true;
+        let mut write = false;
 
         if let Some(attr) = attrs
             .iter()
@@ -26,6 +28,10 @@ impl syn::parse::Parse for RedisCmd {
                 }
                 if meta.path.is_ident("no_parse") {
                     impl_parse = false;
+                    return Ok(());
+                }
+                if meta.path.is_ident("write") {
+                    write = true;
                     return Ok(());
                 }
                 Err(meta.error("expected 'syntax=\"..\"'"))
@@ -45,6 +51,7 @@ impl syn::parse::Parse for RedisCmd {
         syn::braced!(content in input);
         Ok(RedisCmd {
             syntax,
+            write,
             impl_parse,
             ident,
             fields: content.parse_terminated(syn::Field::parse_named, syn::Token![,])?,
@@ -83,6 +90,7 @@ impl RedisCmd {
         let ident = &self.ident;
         // let syntax = self.get_syntax()?;
         let syntax = &self.syntax;
+        let write = &self.write;
         let name = ident.to_string().to_uppercase();
         let stream = quote! {
             impl crate::command::Command for #ident {
@@ -91,6 +99,9 @@ impl RedisCmd {
                 }
                 fn syntax(&self) -> &'static str {
                     #syntax
+                }
+                fn is_write_cmd(&self) -> bool {
+                    #write
                 }
             }
         };

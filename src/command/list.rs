@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[derive(RedisCommand, Debug)]
-#[redis_command(syntax = "RPUSH key element [element ...]")]
+#[redis_command(syntax = "RPUSH key element [element ...]", write)]
 pub struct Rpush {
     key: Bytes,
     values: Vec<Bytes>,
@@ -53,7 +53,7 @@ impl AsyncCommand for Lrange {
 }
 
 #[derive(RedisCommand)]
-#[redis_command(syntax = "LPUSH key element [element ...]")]
+#[redis_command(syntax = "LPUSH key element [element ...]", write)]
 pub struct Lpush {
     key: Bytes,
     values: Vec<Bytes>,
@@ -92,7 +92,7 @@ impl AsyncCommand for LLen {
 }
 
 #[derive(RedisCommand)]
-#[redis_command(syntax = "LPOP key")]
+#[redis_command(syntax = "LPOP key", write)]
 pub struct Lpop {
     key: Bytes,
     count: Option<u64>,
@@ -120,7 +120,7 @@ impl AsyncCommand for Lpop {
 }
 
 #[derive(RedisCommand, Debug, PartialEq)]
-#[redis_command(syntax = "BLPOP key [key ...] timeout", no_parse)]
+#[redis_command(syntax = "BLPOP key [key ...] timeout", no_parse, write)]
 pub struct Blpop {
     keys: Vec<Bytes>,
     timeout: f64,

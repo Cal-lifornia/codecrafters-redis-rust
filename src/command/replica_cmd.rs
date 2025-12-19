@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use bytes::Bytes;
+use either::Either;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
@@ -86,6 +87,9 @@ impl AsyncCommand for Psync {
         RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
         let rdb_file = RdbFile::open_file("static/empty.rdb").await?;
         rdb_file.write_to_buf(buf);
+        if let Either::Left(main) = &ctx.role {
+            main.replicas.write().await.push(ctx.writer.clone());
+        }
         Ok(())
     }
 }

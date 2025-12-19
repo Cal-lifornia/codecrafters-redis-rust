@@ -17,8 +17,8 @@ pub type RedisCommand = Box<dyn Command + Send + Sync>;
 
 pub trait Command: AsyncCommand {
     fn name(&self) -> &'static str;
-    #[allow(unused)]
     fn syntax(&self) -> &'static str;
+    fn is_write_cmd(&self) -> bool;
 }
 
 pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisCommand, RedisError> {

@@ -9,6 +9,7 @@ use tokio::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::RwLock,
+    task::JoinSet,
 };
 
 use crate::{
@@ -63,8 +64,33 @@ pub enum ReplicaError {
 
 #[derive(Default, Clone)]
 pub struct MainServer {
-    #[allow(unused)]
     pub replicas: Arc<RwLock<Vec<Arc<RwLock<OwnedWriteHalf>>>>>,
+}
+
+impl MainServer {
+    pub async fn write_to_replicas(&self, value: Vec<u8>) {
+        let replicas = self.replicas.write().await;
+        let mut task_set = JoinSet::new();
+        for replica in &*replicas {
+            let value = value.clone();
+            let replica = replica.clone();
+            task_set.spawn(async move {
+                let mut writer = replica.write().await;
+                writer.write_all(&value).await
+            });
+        }
+        while let Some(res) = task_set.join_next().await {
+            match res {
+                Ok(Err(err)) => {
+                    eprintln!("failed to write to replica: {err:?}");
+                }
+                Err(err) => {
+                    eprintln!("failed to write to replica: {err:?}");
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 #[derive(Clone)]

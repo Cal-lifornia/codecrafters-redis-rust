@@ -56,36 +56,28 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
                     }
                 };
 
-                let input = match RespType::async_read(&mut BufReader::new(&buf[0..n])).await {
-                    Ok(input) => input,
-                    Err(err) => {
-                        eprintln!("failed to parse input; {err}");
-                        return;
-                    }
-                };
-                let results = match handle_stream(ctx.clone(), input).await {
-                    Ok(results) => results,
-                    Err(err) => {
-                        let mut results = BytesMut::new();
-                        eprintln!("ERROR: {err}");
-                        RespType::simple_error(err.to_string()).write_to_buf(&mut results);
-                        results.into()
-                    }
-                };
-                {
-                    let mut writer = ctx.writer.write().await;
-                    writer.write_all(&results).await.expect("valid read");
+                if let Err(err) = handle_stream(ctx.clone(), &buf[0..n]).await {
+                    let mut results = BytesMut::new();
+                    eprintln!("ERROR: {err}");
+                    RespType::simple_error(err.to_string()).write_to_buf(&mut results);
                 }
             }
         });
     }
 }
 
-async fn handle_stream(ctx: Context, input: RespType) -> Result<Bytes, RedisError> {
+async fn handle_stream(ctx: Context, stream: &[u8]) -> Result<(), RedisError> {
+    let input = RespType::async_read(&mut BufReader::new(stream)).await?;
     let mut redis_stream = RedisStream::try_from(input)?;
     let mut buf = BytesMut::new();
     if let Some(next) = redis_stream.next() {
         let command = get_command(next, &mut redis_stream)?;
+        let write = command.is_write_cmd();
+        if let Either::Left(main) = &ctx.role
+            && write
+        {
+            main.write_to_replicas(stream.to_vec()).await;
+        }
         if (!matches!(
             command.name().to_lowercase().as_str(),
             "multi" | "exec" | "discard"
@@ -96,11 +88,15 @@ async fn handle_stream(ctx: Context, input: RespType) -> Result<Bytes, RedisErro
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
+        if !(ctx.role.is_right() && write) {
+            let mut writer = ctx.writer.write().await;
+            writer.write_all(&buf).await.expect("valid read");
+        }
     } else {
         return Err(RedisError::Other("expected a value".into()));
     }
 
-    Ok(buf.into())
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]

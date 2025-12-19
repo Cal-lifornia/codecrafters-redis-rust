@@ -34,7 +34,8 @@ impl AsyncCommand for Get {
 #[derive(RedisCommand, Debug)]
 #[redis_command(
     syntax = "SET key value [NX | XX] [GET] [EX seconds | PX milliseconds |\
-    EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]"
+    EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]",
+    write
 )]
 pub struct Set {
     key: Bytes,
@@ -110,7 +111,7 @@ impl AsyncCommand for Set {
 }
 
 #[derive(RedisCommand)]
-#[redis_command(syntax = "INCR key")]
+#[redis_command(syntax = "INCR key", write)]
 pub struct Incr {
     key: Bytes,
 }

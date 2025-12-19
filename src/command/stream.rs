@@ -22,7 +22,8 @@ use crate::{
 #[derive(RedisCommand)]
 #[redis_command(
     syntax = "XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [<MAXLEN | MINID> [= | ~] threshold
-  [LIMIT count]] <* | id> field value [field value ...]"
+  [LIMIT count]] <* | id> field value [field value ...]",
+    write
 )]
 pub struct Xadd {
     key: Bytes,
