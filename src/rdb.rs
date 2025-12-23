@@ -64,9 +64,13 @@ impl Decoder for RdbCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if let Some(first) = src.first().cloned()
-            && first == b'$'
-        {
+        if let Some(first) = src.first().cloned() {
+            if first != b'$' {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("expected '$', got {first}"),
+                ));
+            }
             src.advance(1);
 
             let size_breakoff = match src.windows(2).position(|window| window == b"\r\n") {
@@ -93,7 +97,7 @@ impl Decoder for RdbCodec {
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "missing '$' char",
+                "missing first char",
             ))
         }
     }
