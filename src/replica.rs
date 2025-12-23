@@ -190,6 +190,7 @@ impl Replica {
         if let RespType::SimpleString(psync) = resp {
             let results = String::from_utf8_lossy(&psync);
             let args: Vec<&str> = results.split_terminator(' ').collect();
+            info.offset = 0;
             if let Some(repl_id) = &args.get(1) {
                 info.replication_id = repl_id.to_string();
             }

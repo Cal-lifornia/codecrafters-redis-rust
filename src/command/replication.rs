@@ -1,7 +1,8 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use either::Either;
 use redis_proc_macros::RedisCommand;
+use tokio::io::AsyncWriteExt;
 
 use crate::{
     command::{AsyncCommand, Command, CommandError},
@@ -20,7 +21,7 @@ pub struct Replconf {
 impl AsyncCommand for Replconf {
     async fn run_command(
         &self,
-        _ctx: &crate::context::Context,
+        ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
         let mut args = self.args.iter();
@@ -60,6 +61,20 @@ impl AsyncCommand for Replconf {
                                 .into(),
                         )
                     }
+                }
+                b"getack" => {
+                    if let Some(next) = args.next()
+                        && next.to_ascii_lowercase().as_slice() == b"*"
+                        && let Either::Right(ref replica) = ctx.role
+                    {
+                        let mut writer = replica.conn.writer.write().await;
+                        let mut buf = BytesMut::new();
+                        let offset = ctx.replication.read().await.offset;
+                        RespType::from(format!("REPLCONF ACK {offset}").split_whitespace())
+                            .write_to_buf(&mut buf);
+                        writer.write_all(&buf).await?;
+                    }
+                    Ok(())
                 }
                 _ => todo!(),
             },
