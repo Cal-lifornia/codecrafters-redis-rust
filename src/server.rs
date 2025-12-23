@@ -1,19 +1,16 @@
 use std::sync::Arc;
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use either::Either;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::TcpListener,
-    sync::RwLock,
-};
+use tokio::{io::AsyncWriteExt, net::TcpListener, sync::RwLock};
 
 use crate::{
     command::{CommandError, get_command},
+    connection::Connection,
     context::Context,
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
-    replica::{MainServer, RedisRole, Replica, ReplicaError, ReplicationInfo},
+    replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
     resp::{RedisWrite, RespType},
 };
 
@@ -23,7 +20,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     let db = Arc::new(RedisDatabase::default());
     let mut info = ReplicationInfo::new(replica.is_none());
     let role = if let Some(main_address) = replica {
-        Either::Right(Replica::new(main_address, port).await?)
+        Either::Right(Replica::connect(main_address, port).await?)
     } else {
         Either::Left(MainServer::default())
     };
@@ -33,47 +30,22 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     let replication = Arc::new(RwLock::new(info));
     if let Either::Right(ref replica) = role {
         replica
-            .handle_main_stream(db.clone(), replication.clone(), role.clone())
+            .conn
+            .handle(db.clone(), replication.clone(), role.clone())
             .await;
     }
     loop {
         let db_clone = db.clone();
         let (socket, _) = listener.accept().await?;
-        let (mut read, write) = socket.into_split();
-        let writer = Arc::new(RwLock::new(write));
-        // let mut reader = BufReader::new(read);
-        let ctx = Context {
-            db: db_clone.clone(),
-            writer,
-            transactions: Arc::new(RwLock::new(None)),
-            replication: replication.clone(),
-            role: role.clone(),
-        };
-        tokio::spawn(async move {
-            loop {
-                let mut buf = [0u8; 1024];
-                let n = match read.read(&mut buf).await {
-                    Ok(0) => return,
-                    Ok(n) => n,
-                    Err(err) => {
-                        eprintln!("failed to read from socket; err = {:?}", err);
-                        return;
-                    }
-                };
-
-                if let Err(err) = handle_command(ctx.clone(), &buf[0..n]).await {
-                    let mut results = BytesMut::new();
-                    eprintln!("ERROR: {err}");
-                    RespType::simple_error(err.to_string()).write_to_buf(&mut results);
-                }
-            }
-        });
+        let connection = Connection::new(socket);
+        connection
+            .handle(db_clone.clone(), replication.clone(), role.clone())
+            .await;
     }
 }
 
-pub async fn handle_command(ctx: Context, stream: &[u8]) -> Result<(), RedisError> {
-    let input = RespType::async_read(&mut BufReader::new(stream)).await?;
-    let mut redis_stream = RedisStream::try_from(input)?;
+pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisError> {
+    let mut redis_stream = RedisStream::try_from(input.clone())?;
     let mut buf = BytesMut::new();
     if let Some(next) = redis_stream.next() {
         let command = get_command(next, &mut redis_stream)?;
@@ -81,7 +53,7 @@ pub async fn handle_command(ctx: Context, stream: &[u8]) -> Result<(), RedisErro
         if let Either::Left(main) = &ctx.role
             && write
         {
-            main.write_to_replicas(stream.to_vec()).await;
+            main.write_to_replicas(input).await;
         }
         if (!matches!(
             command.name().to_lowercase().as_str(),

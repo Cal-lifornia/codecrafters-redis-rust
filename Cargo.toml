@@ -21,6 +21,7 @@ hashbrown = { workspace = true }
 indexmap = { workspace = true }
 either = "1.15.0"
 tokio-util = { version = "0.7.17", features = ["full"] }
+tokio-stream = { version = "0.1.17", features = ["full"] }
 
 [workspace.dependencies]
 anyhow = "1.0.59"                                   # error handling

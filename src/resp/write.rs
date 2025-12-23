@@ -111,23 +111,6 @@ impl<T: RedisWrite + Clone> RedisWrite for HashMap<T, T> {
     }
 }
 
-// impl RedisWrite for ReadStreamResult {
-//     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
-//         let len = self.len();
-//         buf.put_u8(b'*');
-//         buf.put_slice(len.to_string().as_bytes());
-//         buf.put_slice(&CRLF);
-//         self.iter().for_each(|(key, value)| {
-//             buf.put_slice(b"*2\r\n");
-//             key.write_to_buf(buf);
-//             for entry in value {
-//                 entry.id.write_to_buf(buf);
-//                 entry.values.write_to_buf(buf);
-//             }
-//         });
-//     }
-// }
-
 impl<K: RedisWrite, V: RedisWrite> RedisWrite for IndexMap<K, V> {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         let len = self.len();

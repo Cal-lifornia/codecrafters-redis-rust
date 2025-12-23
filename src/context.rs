@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
-use bytes::BytesMut;
 use either::Either;
-use tokio::{
-    net::{TcpStream, tcp::OwnedWriteHalf},
-    sync::RwLock,
-};
+use tokio::{net::tcp::OwnedWriteHalf, sync::RwLock};
 
 use crate::{
     command::RedisCommand,
@@ -22,19 +18,4 @@ pub struct Context {
     #[allow(unused)]
     pub role: Either<MainServer, Replica>,
     // pub buffer: Arc<Mutex<BytesMut>>,
-}
-
-#[derive(Clone)]
-pub struct Connection {
-    stream: Arc<RwLock<TcpStream>>,
-    buffer: BytesMut,
-}
-
-impl Connection {
-    pub fn new(stream: TcpStream) -> Self {
-        Self {
-            stream: Arc::new(RwLock::new(stream)),
-            buffer: BytesMut::new(),
-        }
-    }
 }

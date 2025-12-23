@@ -1,7 +1,8 @@
 use std::path::Path;
 
-use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::{AsyncBufRead, AsyncReadExt};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio::io::AsyncReadExt;
+use tokio_util::codec::Decoder;
 
 use crate::resp::RedisWrite;
 
@@ -18,32 +19,32 @@ impl RdbFile {
             contents: Bytes::from(buf),
         })
     }
-    pub async fn read_from_redis_stream<R: AsyncBufRead + Unpin>(
-        reader: &mut R,
-    ) -> std::io::Result<Self> {
-        use tokio::io::AsyncBufReadExt;
+    // pub async fn read_from_redis_stream<R: AsyncBufRead + Unpin>(
+    //     reader: &mut R,
+    // ) -> std::io::Result<Self> {
+    //     use tokio::io::AsyncBufReadExt;
 
-        let mut file_size = String::new();
-        let _ = reader.read_line(&mut file_size).await;
-        // println!("file_size: {file_size}");
-        let size = file_size
-            .trim_start_matches("$")
-            .trim_end()
-            .parse::<usize>()
-            .map_err(|err| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("should have a valid file size; {err}"),
-                )
-            })?;
-        // println!("slave: read RDB with size {size}");
-        let mut buf = BytesMut::with_capacity(size);
-        buf.resize(size, 0);
-        let _ = reader.read_exact(&mut buf).await?;
-        Ok(Self {
-            contents: buf.into(),
-        })
-    }
+    //     let mut file_size = String::new();
+    //     let _ = reader.read_line(&mut file_size).await;
+    //     // println!("file_size: {file_size}");
+    //     let size = file_size
+    //         .trim_start_matches("$")
+    //         .trim_end()
+    //         .parse::<usize>()
+    //         .map_err(|err| {
+    //             std::io::Error::new(
+    //                 std::io::ErrorKind::InvalidData,
+    //                 format!("should have a valid file size; {err}"),
+    //             )
+    //         })?;
+    //     // println!("slave: read RDB with size {size}");
+    //     let mut buf = BytesMut::with_capacity(size);
+    //     buf.resize(size, 0);
+    //     let _ = reader.read_exact(&mut buf).await?;
+    //     Ok(Self {
+    //         contents: buf.into(),
+    //     })
+    // }
 }
 
 impl RedisWrite for RdbFile {
@@ -53,5 +54,47 @@ impl RedisWrite for RdbFile {
         buf.put_slice(format!("{len}").as_bytes());
         buf.put_slice(b"\r\n");
         buf.put_slice(&self.contents);
+    }
+}
+
+pub struct RdbCodec {}
+
+impl Decoder for RdbCodec {
+    type Item = RdbFile;
+    type Error = std::io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if let Some(first) = src.first().cloned()
+            && first == b'$'
+        {
+            src.advance(1);
+
+            let size_breakoff = match src.windows(2).position(|window| window == b"\r\n") {
+                Some(idx) => idx,
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "missing '\\r\\n'",
+                    ));
+                }
+            };
+            let size = String::from_utf8_lossy(&src[0..size_breakoff])
+                .parse::<usize>()
+                .map_err(|err| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("expected valid file size: {err}"),
+                    )
+                })?;
+            src.advance(size_breakoff + 2);
+            let out = Bytes::copy_from_slice(&src[0..size]);
+            src.advance(size);
+            Ok(Some(RdbFile { contents: out }))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "missing '$' char",
+            ))
+        }
     }
 }

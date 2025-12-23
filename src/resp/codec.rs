@@ -1,11 +1,12 @@
-use bytes::{Buf, Bytes, BytesMut};
-use tokio_util::codec::Decoder;
+use bytes::{Buf, BufMut, Bytes};
+use tokio_util::codec::{Decoder, Encoder};
 
 use crate::resp::RespType;
 
-pub struct RedisRespCodec;
+pub struct RespCodec {}
+const CRLF: [u8; 2] = [b'\r', b'\n'];
 
-impl Decoder for RedisRespCodec {
+impl Decoder for RespCodec {
     type Item = RespType;
     type Error = std::io::Error;
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -74,7 +75,6 @@ impl Decoder for RedisRespCodec {
                         ));
                     }
                 };
-                src.advance(size_breakoff + 2);
                 let size = String::from_utf8_lossy(&src[0..size_breakoff])
                     .parse::<i64>()
                     .map_err(|err| {
@@ -83,6 +83,7 @@ impl Decoder for RedisRespCodec {
                             format!("expected valid integer: {err}"),
                         )
                     })?;
+                src.advance(size_breakoff + 2);
                 if size == -1 {
                     Ok(Some(RespType::NullBulkString))
                 } else if size >= 0 {
@@ -142,3 +143,151 @@ impl Decoder for RedisRespCodec {
         }
     }
 }
+
+impl Encoder<RespType> for RespCodec {
+    type Error = std::io::Error;
+    fn encode(&mut self, item: RespType, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+        match &item {
+            RespType::SimpleString(bytes) => {
+                dst.put_u8(b'+');
+                dst.put_slice(bytes);
+                dst.put_slice(&CRLF);
+            }
+            RespType::SimpleError(bytes) => {
+                dst.put_u8(b'-');
+                dst.put_slice(bytes);
+                dst.put_slice(&CRLF);
+            }
+            RespType::Integer(num) => {
+                dst.put_u8(b':');
+                dst.put_slice(num.to_string().as_bytes());
+                dst.put_slice(&CRLF);
+            }
+            RespType::BulkString(bytes) => {
+                let len = bytes.len();
+                dst.put_u8(b'$');
+                dst.put_slice(len.to_string().as_bytes());
+                dst.put_slice(&CRLF);
+                dst.put_slice(bytes);
+                dst.put_slice(&CRLF);
+            }
+            RespType::NullBulkString => {
+                dst.put_slice(b"$-1\r\n");
+            }
+            RespType::Array(resp_types) => {
+                let len = resp_types.len();
+                dst.put_u8(b'*');
+                dst.put_slice(len.to_string().as_bytes());
+                dst.put_slice(&CRLF);
+                for resp in resp_types {
+                    self.encode(resp.clone(), dst)?;
+                }
+            }
+            RespType::NullArray => {
+                dst.put_slice(b"*-1\r\n");
+            }
+        }
+        Ok(())
+    }
+}
+
+// impl Encoder<Bytes> for RespCodec {
+//     type Error = std::io::Error;
+//     fn encode(&mut self, item: Bytes, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+//         let len = item.len();
+//         dst.put_u8(b'$');
+//         dst.put_slice(len.to_string().as_bytes());
+//         dst.put_slice(&CRLF);
+//         dst.put_slice(&item);
+//         dst.put_slice(&CRLF);
+//         Ok(())
+//     }
+// }
+
+// impl Encoder<Vec<Bytes>> for RespCodec {
+//     type Error = std::io::Error;
+
+//     fn encode(&mut self, item: Vec<Bytes>, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+//         let len = item.len();
+//         dst.put_u8(b'*');
+//         dst.put_slice(len.to_string().as_bytes());
+//         dst.put_slice(&CRLF);
+//         for i in item {
+//             self.encode(i, dst)?;
+//         }
+//         Ok(())
+//     }
+// }
+
+// impl<T> Encoder<HashMap<T, T>> for RespCodec
+// where
+//     RespCodec: Encoder<T, Error = std::io::Error>,
+// {
+//     type Error = std::io::Error;
+
+//     fn encode(
+//         &mut self,
+//         item: HashMap<T, T>,
+//         dst: &mut bytes::BytesMut,
+//     ) -> Result<(), Self::Error> {
+//         let len = item.len() * 2;
+//         dst.put_u8(b'*');
+//         dst.put_slice(len.to_string().as_bytes());
+//         dst.put_slice(&CRLF);
+//         for (key, value) in item {
+//             self.encode(key, dst)?;
+//             self.encode(value, dst)?;
+//         }
+//         Ok(())
+//     }
+// }
+
+// impl<K, V> Encoder<IndexMap<K, V>> for RespCodec
+// where
+//     RespCodec: Encoder<K, Error = std::io::Error>,
+//     RespCodec: Encoder<V, Error = std::io::Error>,
+// {
+//     type Error = std::io::Error;
+//     fn encode(
+//         &mut self,
+//         item: IndexMap<K, V>,
+//         dst: &mut bytes::BytesMut,
+//     ) -> Result<(), Self::Error> {
+//         let len = item.len();
+//         dst.put_u8(b'*');
+//         dst.put_slice(len.to_string().as_bytes());
+//         dst.put_slice(&CRLF);
+//         for (key, value) in item {
+//             dst.put_slice(b"*2\r\n");
+//             self.encode(key, dst)?;
+//             self.encode(value, dst)?;
+//         }
+//         Ok(())
+//     }
+// }
+// impl<L, R> Encoder<Pair<L, R>> for RespCodec
+// where
+//     RespCodec: Encoder<L, Error = std::io::Error>,
+//     RespCodec: Encoder<R, Error = std::io::Error>,
+// {
+//     type Error = std::io::Error;
+//     fn encode(&mut self, item: Pair<L, R>, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+//         dst.put_slice(b"*2\r\n");
+//         self.encode(item.left, dst)?;
+//         self.encode(item.right, dst)?;
+//         Ok(())
+//     }
+// }
+// impl<L, R> Encoder<Either<L, R>> for RespCodec
+// where
+//     RespCodec: Encoder<L, Error = std::io::Error>,
+//     RespCodec: Encoder<R, Error = std::io::Error>,
+// {
+//     type Error = std::io::Error;
+//     fn encode(&mut self, item: Either<L, R>, dst: &mut bytes::BytesMut) -> Result<(), Self::Error> {
+//         match item {
+//             Either::Left(left) => self.encode(left, dst),
+//             Either::Right(right) => self.encode(right, dst),
+//         }
+//     }
+// }

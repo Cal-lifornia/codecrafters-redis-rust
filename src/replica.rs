@@ -4,21 +4,19 @@ use bytes::{Bytes, BytesMut};
 use either::Either;
 use rand::{Rng, distr::Alphanumeric};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{
-        TcpStream,
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
-    },
+    io::AsyncWriteExt,
+    net::{TcpStream, tcp::OwnedWriteHalf},
     sync::RwLock,
     task::JoinSet,
 };
+use tokio_stream::StreamExt;
+use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-    context::Context,
-    database::RedisDatabase,
-    rdb::RdbFile,
-    resp::{RedisWrite, RespType},
-    server::{RedisError, handle_command},
+    connection::Connection,
+    rdb::RdbCodec,
+    resp::{RedisWrite, RespCodec, RespType},
+    server::RedisError,
 };
 
 pub type RedisRole = Either<MainServer, Replica>;
@@ -74,15 +72,17 @@ pub struct MainServer {
 }
 
 impl MainServer {
-    pub async fn write_to_replicas(&self, value: Vec<u8>) {
+    pub async fn write_to_replicas(&self, value: RespType) {
+        let mut buf = BytesMut::new();
+        RespCodec {}.encode(value, &mut buf).unwrap();
         let replicas = self.replicas.write().await;
         let mut task_set = JoinSet::new();
         for replica in &*replicas {
-            let value = value.clone();
             let replica = replica.clone();
+            let buf = buf.clone();
             task_set.spawn(async move {
                 let mut writer = replica.write().await;
-                writer.write_all(&value).await
+                writer.write_all(&buf.clone()).await
             });
         }
         while let Some(res) = task_set.join_next().await {
@@ -101,39 +101,36 @@ impl MainServer {
 
 #[derive(Clone)]
 pub struct Replica {
-    pub main_reader: Arc<RwLock<BufReader<OwnedReadHalf>>>,
-    pub main_writer: Arc<RwLock<OwnedWriteHalf>>,
-    port: String,
+    pub conn: Connection,
+    pub port: String,
 }
 
 impl Replica {
-    pub async fn new(main_address: String, port: String) -> std::io::Result<Self> {
-        println!("MAIN_ADDRESS: {main_address}");
-        let stream = TcpStream::connect(main_address).await?;
-        // stream.write_all(b"TEST").await?;
-        let (main_reader, main_writer) = stream.into_split();
+    pub async fn connect(address: String, port: String) -> std::io::Result<Self> {
+        let stream = TcpStream::connect(address).await?;
         Ok(Self {
-            main_reader: Arc::new(RwLock::new(BufReader::new(main_reader))),
-            main_writer: Arc::new(RwLock::new(main_writer)),
+            conn: Connection::new(stream),
             port,
         })
     }
     pub async fn handshake(&self, info: &mut ReplicationInfo) -> Result<(), RedisError> {
         {
-            let mut writer = self.main_writer.write().await;
+            let mut writer = self.conn.writer.write().await;
             let mut write_buf = BytesMut::new();
             vec![(Bytes::from("PING"))].write_to_buf(&mut write_buf);
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
         }
-        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
-        if resp != RespType::simple_string("PONG") {
-            return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
+        if let Some(Ok(resp)) = self.conn.reader.write().await.next().await {
+            if resp != RespType::simple_string("PONG") {
+                return Err(ReplicaError::HandshakeError("Didn't receive PONG").into());
+            }
+        } else {
+            return Err(ReplicaError::HandshakeError("didn't receive valid response").into());
         }
-
         // Write first REPLCONF
         {
-            let mut writer = self.main_writer.write().await;
+            let mut writer = self.conn.writer.write().await;
             let mut write_buf = BytesMut::new();
             vec![
                 (Bytes::from("REPLCONF")),
@@ -145,14 +142,17 @@ impl Replica {
             writer.flush().await?;
         }
 
-        let (resp, _) = RespType::from_utf8(&self.read_main().await?)?;
-        if resp != RespType::simple_string("OK") {
-            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        if let Some(Ok(resp)) = self.conn.reader.write().await.next().await {
+            if resp != RespType::simple_string("OK") {
+                return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+            }
+        } else {
+            return Err(ReplicaError::HandshakeError("didn't receive valid response").into());
         }
 
         // Write second REPLCONF
         {
-            let mut writer = self.main_writer.write().await;
+            let mut writer = self.conn.writer.write().await;
             let mut write_buf = BytesMut::new();
             vec![
                 (Bytes::from("REPLCONF")),
@@ -163,13 +163,16 @@ impl Replica {
             writer.write_all(&write_buf).await?;
             writer.flush().await?;
         }
-        let (resp, _) = RespType::from_utf8(&self.read_line().await?)?;
-        if resp != RespType::simple_string("OK") {
-            return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+        if let Some(Ok(resp)) = self.conn.reader.write().await.next().await {
+            if resp != RespType::simple_string("OK") {
+                return Err(ReplicaError::HandshakeError("Didn't receive OK").into());
+            }
+        } else {
+            return Err(ReplicaError::HandshakeError("didn't receive valid response").into());
         }
         // Write PSYNC
         {
-            let mut writer = self.main_writer.write().await;
+            let mut writer = self.conn.writer.write().await;
             let mut write_buf = BytesMut::new();
             vec![
                 (Bytes::from("PSYNC")),
@@ -181,7 +184,9 @@ impl Replica {
             writer.flush().await?;
         }
 
-        let resp = RespType::async_read(&mut *self.main_reader.write().await).await?;
+        let Some(Ok(resp)) = self.conn.reader.write().await.next().await else {
+            return Err(ReplicaError::HandshakeError("didn't receive valid response").into());
+        };
         if let RespType::SimpleString(psync) = resp {
             let results = String::from_utf8_lossy(&psync);
             let args: Vec<&str> = results.split_terminator(' ').collect();
@@ -189,54 +194,13 @@ impl Replica {
                 info.replication_id = repl_id.to_string();
             }
         }
-        let _ = RdbFile::read_from_redis_stream(&mut *self.main_reader.write().await).await?;
+        {
+            let mut reader = self.conn.reader.clone().write_owned().await;
+            // let mut rdb_reader = reader.map_decoder(|_| RdbDecoder {});
+            let buffer = reader.read_buffer_mut();
+
+            let _ = RdbCodec {}.decode(buffer)?;
+        }
         Ok(())
-    }
-
-    pub async fn handle_main_stream(
-        &self,
-        db: Arc<RedisDatabase>,
-        info: Arc<RwLock<ReplicationInfo>>,
-        role: RedisRole,
-    ) {
-        let ctx = Context {
-            db,
-            writer: self.main_writer.clone(),
-            transactions: Arc::new(RwLock::new(None)),
-            replication: info,
-            role,
-        };
-        let reader_arc = Arc::clone(&self.main_reader);
-
-        tokio::spawn(async move {
-            let mut reader = reader_arc.write().await;
-            let mut buf = [0u8; 1024];
-            let n = match reader.read(&mut buf).await {
-                Ok(0) => return,
-                Ok(n) => n,
-                Err(err) => {
-                    eprintln!("failed to read from socket; err = {:?}", err);
-                    return;
-                }
-            };
-
-            if let Err(err) = handle_command(ctx.clone(), &buf[0..n]).await {
-                let mut results = BytesMut::new();
-                eprintln!("ERROR: {err}");
-                RespType::simple_error(err.to_string()).write_to_buf(&mut results);
-            }
-        });
-    }
-
-    pub async fn read_main(&self) -> std::io::Result<Bytes> {
-        let mut reader = self.main_reader.write().await;
-        let mut buf = [0u8; 1024];
-        let n = reader.read(&mut buf).await?;
-        Ok(Bytes::copy_from_slice(&buf[0..n]))
-    }
-    pub async fn read_line(&self) -> std::io::Result<Bytes> {
-        let mut buf = String::new();
-        let _ = self.main_reader.write().await.read_line(&mut buf).await?;
-        Ok(Bytes::from(buf))
     }
 }
