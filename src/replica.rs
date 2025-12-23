@@ -10,11 +10,10 @@ use tokio::{
     task::JoinSet,
 };
 use tokio_stream::StreamExt;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::Encoder;
 
 use crate::{
     connection::Connection,
-    rdb::RdbCodec,
     resp::{RedisWrite, RespCodec, RespType},
     server::RedisError,
 };

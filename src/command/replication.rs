@@ -1,8 +1,7 @@
 use async_trait::async_trait;
-use bytes::{Bytes, BytesMut};
+use bytes::Bytes;
 use either::Either;
 use redis_proc_macros::RedisCommand;
-use tokio::io::AsyncWriteExt;
 
 use crate::{
     command::{AsyncCommand, Command, CommandError},
@@ -123,12 +122,12 @@ pub struct Wait {
 impl AsyncCommand for Wait {
     async fn run_command(
         &self,
-        _ctx: &crate::context::Context,
+        ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        match self.num_replicas {
-            0 => RespType::Integer(0).write_to_buf(buf),
-            _ => todo!(),
+        if let Either::Left(ref main) = ctx.role {
+            let len = main.replicas.read().await.len();
+            RespType::Integer(len as i64).write_to_buf(buf);
         }
         Ok(())
     }

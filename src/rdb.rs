@@ -1,8 +1,7 @@
 use std::path::Path;
 
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 use tokio::io::AsyncReadExt;
-use tokio_util::codec::Decoder;
 
 use crate::resp::RedisWrite;
 
@@ -64,48 +63,48 @@ impl RedisWrite for RdbFile {
     }
 }
 
-pub struct RdbCodec {}
+// pub struct RdbCodec {}
 
-impl Decoder for RdbCodec {
-    type Item = RdbFile;
-    type Error = std::io::Error;
+// impl Decoder for RdbCodec {
+//     type Item = RdbFile;
+//     type Error = std::io::Error;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if let Some(first) = src.first().cloned() {
-            if first != b'$' {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("expected '$', got {first}"),
-                ));
-            }
-            src.advance(1);
+//     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+//         if let Some(first) = src.first().cloned() {
+//             if first != b'$' {
+//                 return Err(std::io::Error::new(
+//                     std::io::ErrorKind::InvalidInput,
+//                     format!("expected '$', got {first}"),
+//                 ));
+//             }
+//             src.advance(1);
 
-            let size_breakoff = match src.windows(2).position(|window| window == b"\r\n") {
-                Some(idx) => idx,
-                None => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "missing '\\r\\n'",
-                    ));
-                }
-            };
-            let size = String::from_utf8_lossy(&src[0..size_breakoff])
-                .parse::<usize>()
-                .map_err(|err| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("expected valid file size: {err}"),
-                    )
-                })?;
-            src.advance(size_breakoff + 2);
-            let out = Bytes::copy_from_slice(&src[0..size]);
-            src.advance(size);
-            Ok(Some(RdbFile { contents: out }))
-        } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "missing first char in rdb file",
-            ))
-        }
-    }
-}
+//             let size_breakoff = match src.windows(2).position(|window| window == b"\r\n") {
+//                 Some(idx) => idx,
+//                 None => {
+//                     return Err(std::io::Error::new(
+//                         std::io::ErrorKind::InvalidInput,
+//                         "missing '\\r\\n'",
+//                     ));
+//                 }
+//             };
+//             let size = String::from_utf8_lossy(&src[0..size_breakoff])
+//                 .parse::<usize>()
+//                 .map_err(|err| {
+//                     std::io::Error::new(
+//                         std::io::ErrorKind::InvalidData,
+//                         format!("expected valid file size: {err}"),
+//                     )
+//                 })?;
+//             src.advance(size_breakoff + 2);
+//             let out = Bytes::copy_from_slice(&src[0..size]);
+//             src.advance(size);
+//             Ok(Some(RdbFile { contents: out }))
+//         } else {
+//             Err(std::io::Error::new(
+//                 std::io::ErrorKind::InvalidInput,
+//                 "missing first char in rdb file",
+//             ))
+//         }
+//     }
+// }
