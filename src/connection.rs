@@ -43,6 +43,7 @@ impl Connection {
         db: Arc<RedisDatabase>,
         replication: Arc<RwLock<ReplicationInfo>>,
         role: RedisRole,
+        master_conn: bool,
     ) {
         let ctx = Context {
             db,
@@ -50,6 +51,8 @@ impl Connection {
             transactions: Arc::new(RwLock::new(None)),
             replication,
             role,
+            master_conn,
+            get_ack: Arc::new(RwLock::new(false)),
         };
         let mut reader = self.reader.clone().write_owned().await;
         tokio::spawn(async move {

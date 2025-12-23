@@ -15,7 +15,8 @@ pub struct Context {
     pub writer: Arc<RwLock<OwnedWriteHalf>>,
     pub transactions: Arc<RwLock<Option<Vec<RedisCommand>>>>,
     pub replication: Arc<RwLock<ReplicationInfo>>,
-    #[allow(unused)]
     pub role: Either<MainServer, Replica>,
+    pub master_conn: bool,
+    pub get_ack: Arc<RwLock<bool>>,
     // pub buffer: Arc<Mutex<BytesMut>>,
 }

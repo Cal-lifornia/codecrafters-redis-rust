@@ -31,7 +31,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     if let Either::Right(ref replica) = role {
         replica
             .conn
-            .handle(db.clone(), replication.clone(), role.clone())
+            .handle(db.clone(), replication.clone(), role.clone(), true)
             .await;
     }
     loop {
@@ -39,7 +39,7 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
         let (socket, _) = listener.accept().await?;
         let connection = Connection::new(socket);
         connection
-            .handle(db_clone.clone(), replication.clone(), role.clone())
+            .handle(db_clone.clone(), replication.clone(), role.clone(), false)
             .await;
     }
 }
@@ -53,7 +53,7 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
         if let Either::Left(main) = &ctx.role
             && write
         {
-            main.write_to_replicas(input).await;
+            main.write_to_replicas(input.clone()).await;
         }
         if (!matches!(
             command.name().to_lowercase().as_str(),
@@ -65,9 +65,16 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
-        if !(ctx.role.is_right() && write) {
+        println!("On master connection: {}", ctx.master_conn);
+        let mut get_ack = ctx.get_ack.write().await;
+        if !ctx.master_conn || *get_ack {
+            *get_ack = false;
             let mut writer = ctx.writer.write().await;
             writer.write_all(&buf).await.expect("valid read");
+        }
+        if ctx.role.is_right() {
+            let mut info = ctx.replication.write().await;
+            info.offset += input.byte_size() as i64;
         }
     } else {
         return Err(RedisError::Other("expected a value".into()));

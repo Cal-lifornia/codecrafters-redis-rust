@@ -21,3 +21,24 @@ impl<I: Iterator<Item = S>, S: Display> From<I> for RespType {
         RespType::Array(out)
     }
 }
+
+impl RespType {
+    pub fn byte_size(&self) -> usize {
+        match self {
+            RespType::SimpleString(value) => value.len() + 3,
+            RespType::SimpleError(value) => value.len() + 3,
+            RespType::Integer(num) => num.to_string().len() + 3,
+            RespType::BulkString(value) => {
+                let len = value.len();
+                let len_size = len.to_string().len() + 3;
+                len + len_size + 2
+            }
+            RespType::NullBulkString => 5,
+            RespType::Array(values) => {
+                let len_size = values.len().to_string().len() + 3;
+                values.iter().map(|val| val.byte_size()).sum::<usize>() + len_size
+            }
+            RespType::NullArray => 5,
+        }
+    }
+}

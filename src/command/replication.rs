@@ -65,14 +65,17 @@ impl AsyncCommand for Replconf {
                 b"getack" => {
                     if let Some(next) = args.next()
                         && next.to_ascii_lowercase().as_slice() == b"*"
-                        && let Either::Right(ref replica) = ctx.role
+                        && ctx.master_conn
                     {
-                        let mut writer = replica.conn.writer.write().await;
-                        let mut buf = BytesMut::new();
+                        let mut get_ack = ctx.get_ack.write().await;
+                        *get_ack = true;
                         let offset = ctx.replication.read().await.offset;
-                        RespType::from(format!("REPLCONF ACK {offset}").split_whitespace())
-                            .write_to_buf(&mut buf);
-                        writer.write_all(&buf).await?;
+                        let resp = RespType::Array(vec![
+                            RespType::BulkString(Bytes::from("REPLCONF")),
+                            RespType::BulkString(Bytes::from("ACK")),
+                            RespType::BulkString(Bytes::from(offset.to_string())),
+                        ]);
+                        resp.write_to_buf(buf);
                     }
                     Ok(())
                 }

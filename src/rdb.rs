@@ -51,7 +51,7 @@ impl RedisWrite for RdbFile {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         let len = self.contents.len();
         buf.put_u8(b'$');
-        buf.put_slice(format!("{len}").as_bytes());
+        buf.put_slice(len.to_string().as_bytes());
         buf.put_slice(b"\r\n");
         buf.put_slice(&self.contents);
     }
@@ -97,7 +97,7 @@ impl Decoder for RdbCodec {
         } else {
             Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "missing first char",
+                "missing first char in rdb file",
             ))
         }
     }
