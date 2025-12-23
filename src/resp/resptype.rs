@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use bytes::Bytes;
 
+use crate::rdb::RdbFile;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RespType {
     SimpleString(Bytes),
@@ -11,6 +13,7 @@ pub enum RespType {
     NullBulkString,
     Array(Vec<RespType>),
     NullArray,
+    RdbFile(RdbFile),
 }
 
 impl<I: Iterator<Item = S>, S: Display> From<I> for RespType {
@@ -39,6 +42,7 @@ impl RespType {
                 values.iter().map(|val| val.byte_size()).sum::<usize>() + len_size
             }
             RespType::NullArray => 5,
+            RespType::RdbFile(file) => file.len() + file.len().to_string().len() + 3,
         }
     }
 }

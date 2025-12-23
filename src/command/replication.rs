@@ -111,3 +111,25 @@ impl AsyncCommand for Psync {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "WAIT replicas timeout")]
+pub struct Wait {
+    num_replicas: usize,
+    timeout: usize,
+}
+
+#[async_trait]
+impl AsyncCommand for Wait {
+    async fn run_command(
+        &self,
+        _ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        match self.num_replicas {
+            0 => RespType::Integer(0).write_to_buf(buf),
+            _ => todo!(),
+        }
+        Ok(())
+    }
+}

@@ -33,7 +33,7 @@ impl Connection {
         Self {
             reader: Arc::new(RwLock::new(FramedRead::new(
                 BufReader::new(reader),
-                RespCodec {},
+                RespCodec::default(),
             ))),
             writer: Arc::new(RwLock::new(writer)),
         }

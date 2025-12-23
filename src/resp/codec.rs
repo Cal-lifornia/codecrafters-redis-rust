@@ -1,9 +1,15 @@
 use bytes::{Buf, BufMut, Bytes};
 use tokio_util::codec::{Decoder, Encoder};
 
-use crate::resp::RespType;
+use crate::{
+    rdb::{RdbCodec, RdbFile},
+    resp::{RedisWrite, RespType},
+};
 
-pub struct RespCodec {}
+#[derive(Default)]
+pub struct RespCodec {
+    pub rdb: bool,
+}
 const CRLF: [u8; 2] = [b'\r', b'\n'];
 
 impl Decoder for RespCodec {
@@ -87,9 +93,16 @@ impl Decoder for RespCodec {
                 if size == -1 {
                     Ok(Some(RespType::NullBulkString))
                 } else if size >= 0 {
-                    let out = Bytes::copy_from_slice(&src[0..(size as usize)]);
-                    src.advance((size as usize) + 2);
-                    Ok(Some(RespType::BulkString(out)))
+                    if self.rdb {
+                        let out = RdbFile::new(Bytes::copy_from_slice(&src[0..(size as usize)]));
+                        src.advance(size as usize);
+                        self.rdb = false;
+                        Ok(Some(RespType::RdbFile(out)))
+                    } else {
+                        let out = Bytes::copy_from_slice(&src[0..(size as usize)]);
+                        src.advance((size as usize) + 2);
+                        Ok(Some(RespType::BulkString(out)))
+                    }
                 } else {
                     Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -185,6 +198,9 @@ impl Encoder<RespType> for RespCodec {
             }
             RespType::NullArray => {
                 dst.put_slice(b"*-1\r\n");
+            }
+            RespType::RdbFile(file) => {
+                file.write_to_buf(dst);
             }
         }
         Ok(())

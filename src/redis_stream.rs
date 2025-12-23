@@ -172,6 +172,17 @@ impl ParseStream for u64 {
         }
     }
 }
+impl ParseStream for usize {
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        if let Some(value) = stream.next() {
+            Ok(String::from_utf8(value.to_vec())
+                .expect("valid utf-8")
+                .parse()?)
+        } else {
+            Err(StreamParseError::EmptyArg)
+        }
+    }
+}
 
 impl ParseStream for f64 {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {

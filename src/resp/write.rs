@@ -62,6 +62,9 @@ impl RedisWrite for RespType {
             RespType::NullArray => {
                 buf.put_slice(b"*-1\r\n");
             }
+            RespType::RdbFile(file) => {
+                file.write_to_buf(buf);
+            }
         }
     }
 }

@@ -74,7 +74,7 @@ pub struct MainServer {
 impl MainServer {
     pub async fn write_to_replicas(&self, value: RespType) {
         let mut buf = BytesMut::new();
-        RespCodec {}.encode(value, &mut buf).unwrap();
+        RespCodec::default().encode(value, &mut buf).unwrap();
         let replicas = self.replicas.write().await;
         let mut task_set = JoinSet::new();
         for replica in &*replicas {
@@ -197,10 +197,8 @@ impl Replica {
         }
         {
             let mut reader = self.conn.reader.clone().write_owned().await;
-            // let mut rdb_reader = reader.map_decoder(|_| RdbDecoder {});
-            let buffer = reader.read_buffer_mut();
-
-            let _ = RdbCodec {}.decode(buffer)?;
+            reader.decoder_mut().rdb = true;
+            let _ = reader.next().await;
         }
         Ok(())
     }

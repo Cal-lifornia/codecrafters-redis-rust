@@ -6,6 +6,7 @@ use tokio_util::codec::Decoder;
 
 use crate::resp::RedisWrite;
 
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RdbFile {
     contents: Bytes,
 }
@@ -18,6 +19,12 @@ impl RdbFile {
         Ok(Self {
             contents: Bytes::from(buf),
         })
+    }
+    pub fn len(&self) -> usize {
+        self.contents.len()
+    }
+    pub fn new(contents: Bytes) -> Self {
+        Self { contents }
     }
     // pub async fn read_from_redis_stream<R: AsyncBufRead + Unpin>(
     //     reader: &mut R,
