@@ -13,7 +13,8 @@ use tokio_stream::StreamExt;
 use tokio_util::codec::FramedRead;
 
 use crate::{
-    context::Context,
+    ArcLock,
+    context::{Config, Context},
     database::RedisDatabase,
     replica::{RedisRole, ReplicationInfo},
     resp::{RedisWrite, RespCodec, RespType},
@@ -44,6 +45,7 @@ impl Connection {
         replication: Arc<RwLock<ReplicationInfo>>,
         role: RedisRole,
         master_conn: bool,
+        config: ArcLock<Config>,
     ) {
         let ctx = Context {
             db,
@@ -53,6 +55,7 @@ impl Connection {
             role,
             master_conn,
             get_ack: Arc::new(RwLock::new(false)),
+            config,
         };
         let mut reader = self.reader.clone().write_owned().await;
         tokio::spawn(async move {

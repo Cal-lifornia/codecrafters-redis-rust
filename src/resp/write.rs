@@ -144,3 +144,13 @@ impl<L: RedisWrite, R: RedisWrite> RedisWrite for Either<L, R> {
         }
     }
 }
+
+// impl<T: RedisWrite> RedisWrite for [T] {
+//     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+//         let len = self.len();
+//         buf.put_u8(b'*');
+//         buf.put_slice(len.to_string().as_bytes());
+//         buf.put_slice(&CRLF);
+//         self.iter().for_each(|resp| resp.write_to_buf(buf));
+//     }
+// }

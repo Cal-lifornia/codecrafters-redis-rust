@@ -4,7 +4,6 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use either::Either;
 use redis_proc_macros::RedisCommand;
-use tokio::time::Instant;
 
 use crate::{
     command::{AsyncCommand, Command, CommandError},

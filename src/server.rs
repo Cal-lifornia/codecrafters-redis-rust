@@ -7,16 +7,22 @@ use tokio::{io::AsyncWriteExt, net::TcpListener, sync::RwLock};
 use crate::{
     command::{CommandError, get_command},
     connection::Connection,
-    context::Context,
+    context::{Config, Context},
     database::RedisDatabase,
     redis_stream::{RedisStream, StreamParseError},
     replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
     resp::{RedisWrite, RespType},
 };
 
-pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), RedisError> {
+pub async fn run(
+    port: Option<String>,
+    replica: Option<String>,
+    dir: Option<String>,
+    db_file_name: Option<String>,
+) -> Result<(), RedisError> {
     let port = port.unwrap_or("6379".into());
     let listener = TcpListener::bind(format! {"127.0.0.1:{}", port.clone()}).await?;
+    let config = Arc::new(RwLock::new(Config::new(dir, db_file_name)));
     let db = Arc::new(RedisDatabase::default());
     let mut info = ReplicationInfo::new(replica.is_none());
     let role = if let Some(main_address) = replica {
@@ -31,15 +37,28 @@ pub async fn run(port: Option<String>, replica: Option<String>) -> Result<(), Re
     if let Either::Right(ref replica) = role {
         replica
             .conn
-            .handle(db.clone(), replication.clone(), role.clone(), true)
+            .handle(
+                db.clone(),
+                replication.clone(),
+                role.clone(),
+                true,
+                config.clone(),
+            )
             .await;
     }
     loop {
         let db_clone = db.clone();
+        let config = config.clone();
         let (socket, _) = listener.accept().await?;
         let connection = Connection::new(socket);
         connection
-            .handle(db_clone.clone(), replication.clone(), role.clone(), false)
+            .handle(
+                db_clone.clone(),
+                replication.clone(),
+                role.clone(),
+                false,
+                config,
+            )
             .await;
     }
 }

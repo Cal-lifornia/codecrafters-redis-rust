@@ -12,3 +12,5 @@ mod server;
 pub use server::run;
 mod pair;
 pub use pair::*;
+
+pub type ArcLock<T> = std::sync::Arc<tokio::sync::RwLock<T>>;
