@@ -23,3 +23,12 @@ impl<L: PartialEq, R: PartialEq> PartialEq for Pair<L, R> {
         self.left == other.left && self.right == other.right
     }
 }
+
+impl<L, R> From<(L, R)> for Pair<L, R> {
+    fn from(value: (L, R)) -> Self {
+        Self {
+            left: value.0,
+            right: value.1,
+        }
+    }
+}

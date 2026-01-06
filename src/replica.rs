@@ -24,6 +24,7 @@ pub struct ReplicationInfo {
     pub role: String,
     pub replication_id: String,
     pub offset: i64,
+    pub waiting: Option<usize>,
 }
 
 impl ReplicationInfo {
@@ -37,12 +38,14 @@ impl ReplicationInfo {
                 role: role.into(),
                 replication_id,
                 offset: 0,
+                waiting: None,
             }
         } else {
             Self {
                 role: role.into(),
                 replication_id: "?".into(),
                 offset: -1,
+                waiting: None,
             }
         }
     }
@@ -68,6 +71,7 @@ pub enum ReplicaError {
 #[derive(Default, Clone)]
 pub struct MainServer {
     pub replicas: Arc<RwLock<Vec<Arc<RwLock<OwnedWriteHalf>>>>>,
+    pub need_offset: Arc<RwLock<bool>>,
 }
 
 impl MainServer {

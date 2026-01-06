@@ -53,6 +53,7 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
         if let Either::Left(main) = &ctx.role
             && write
         {
+            *main.need_offset.write().await = true;
             main.write_to_replicas(input.clone()).await;
         }
         if (!matches!(
@@ -65,7 +66,6 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
-        println!("On master connection: {}", ctx.master_conn);
         let mut get_ack = ctx.get_ack.write().await;
         if !ctx.master_conn || *get_ack {
             *get_ack = false;
