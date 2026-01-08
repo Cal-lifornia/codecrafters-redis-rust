@@ -35,6 +35,7 @@
               # rust toolchain
               # use rust-analyzer-nightly for better type inference
               rust-analyzer
+              redis
               # cargo-watch
               # cargo-flamegraph
               # gnuplot

@@ -63,7 +63,7 @@ async fn main() -> std::io::Result<()> {
         }
     }
     if let Err(err) = codecrafters_redis::run(port, replica_of, dir, db_file_name).await {
-        tracing::error!("{err}",);
+        tracing::error!("{err}");
         Err(std::io::Error::other(err))
     } else {
         Ok(())

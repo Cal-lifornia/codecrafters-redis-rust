@@ -10,6 +10,8 @@ use hashbrown::HashMap;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
+use crate::database::RedisDatabase;
+
 pub const RDB_KV_STR: u8 = 0;
 pub const RDB_KV_LIST: u8 = 1;
 
@@ -93,11 +95,12 @@ impl Decoder for RdbCodec {
                             let Some(value) = RdbLenStr::decode_stream(self, src)? else {
                                 return Ok(None);
                             };
-
                             map.insert(key, value);
                         }
                         b"redis-bits" => {
-                            self.cursor += 2;
+                            let Some(_) = LenEncoding::decode_stream(self, src)? else {
+                                return Ok(None);
+                            };
                         }
                         _ => {
                             self.cursor = backup;
@@ -426,7 +429,8 @@ impl LenEncoding {
         if let Some(first) = src.get(codec.cursor) {
             match LenEncoding::check_val(*first) {
                 LenEncoding::BasicLen => {
-                    let len = src[codec.cursor] & 0b0011_1111;
+                    let len = src[codec.cursor] << 2;
+                    let len = len >> 2;
                     codec.cursor += 1;
                     Ok(Some(len as usize))
                 }
@@ -434,7 +438,8 @@ impl LenEncoding {
                     let Some(len) = src.get(codec.cursor..(codec.cursor + 2)) else {
                         return Ok(None);
                     };
-                    let first_bit = len[0] & 0b0011_1111;
+                    let first_bit = len[0] << 2;
+                    let first_bit = first_bit >> 2;
                     let out = usize::from_be_bytes(vec![first_bit, len[1]].try_into().unwrap());
                     codec.cursor += 2;
                     Ok(Some(out))
@@ -449,8 +454,9 @@ impl LenEncoding {
                     Ok(Some(out))
                 }
                 LenEncoding::Special => {
-                    let len = src[codec.cursor] & 0b0011_1111;
-                    println!("LEN: {len:#80b}");
+                    let len = src[codec.cursor] << 2;
+                    let len = len >> 2;
+                    println!("LEN: {len:#010b}");
                     codec.cursor += 1;
                     match len {
                         0 => {
