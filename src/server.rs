@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use bytes::BytesMut;
 use either::Either;
@@ -9,6 +9,7 @@ use crate::{
     connection::Connection,
     context::{Config, Context},
     database::RedisDatabase,
+    rdb::RdbFile,
     redis_stream::{RedisStream, StreamParseError},
     replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
     resp::{RedisWrite, RespType},
@@ -19,11 +20,20 @@ pub async fn run(
     replica: Option<String>,
     dir: Option<String>,
     db_file_name: Option<String>,
-) -> Result<(), RedisError> {
+) -> anyhow::Result<()> {
     let port = port.unwrap_or("6379".into());
     let listener = TcpListener::bind(format! {"127.0.0.1:{}", port.clone()}).await?;
+    let db = if let Some(file_name) = &db_file_name
+        && let Some(dir) = &dir
+    {
+        let path: PathBuf = [dir, file_name].iter().collect();
+        println!("PATH: {path:#?}");
+        let rdb = RdbFile::read_file(path).await?;
+        Arc::new(RedisDatabase::from_rdb(rdb.databases().first().cloned().unwrap_or(vec![])).await)
+    } else {
+        Arc::new(RedisDatabase::default())
+    };
     let config = Arc::new(RwLock::new(Config::new(dir, db_file_name)));
-    let db = Arc::new(RedisDatabase::default());
     let mut info = ReplicationInfo::new(replica.is_none());
     let role = if let Some(main_address) = replica {
         Either::Right(Replica::connect(main_address, port).await?)

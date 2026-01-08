@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use bytes::Bytes;
 
-use crate::rdb::{EncodedRdbFile, RdbFile};
+use crate::rdb::EncodedRdbFile;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum RespType {

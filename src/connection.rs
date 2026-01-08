@@ -66,14 +66,14 @@ impl Connection {
                         Ok(cmd) => cmd,
                         Err(err) => {
                             let mut results = BytesMut::new();
-                            eprintln!("ERROR: {err}");
+                            tracing::error!("ERROR {err}");
                             RespType::simple_error(err.to_string()).write_to_buf(&mut results);
                             return;
                         }
                     };
                     if let Err(err) = handle_command(ctx.clone(), cmd).await {
                         let mut results = BytesMut::new();
-                        eprintln!("ERROR: {err}");
+                        tracing::error!("ERROR {err}");
                         RespType::simple_error(err.to_string()).write_to_buf(&mut results);
                         return;
                     }

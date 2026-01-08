@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use bytes::Bytes;
 use either::Either;
 use tokio::time::Instant;
@@ -7,7 +9,7 @@ use crate::database::RedisDatabase;
 #[derive(Debug, Clone)]
 pub struct DatabaseValue {
     value: Either<Bytes, i64>,
-    expiry: Option<Instant>,
+    expiry: Option<Either<Instant, SystemTime>>,
 }
 
 impl DatabaseValue {
@@ -36,7 +38,10 @@ impl DatabaseValue {
     // }
     pub fn is_expired(&self) -> bool {
         if let Some(expiry) = self.expiry {
-            Instant::now() > expiry
+            match expiry {
+                Either::Left(expiry) => Instant::now() > expiry,
+                Either::Right(expiry) => SystemTime::now() > expiry,
+            }
         } else {
             false
         }
@@ -47,7 +52,13 @@ impl DatabaseValue {
 }
 
 impl RedisDatabase {
-    pub async fn set_kv(&self, key: Bytes, val: Bytes, expiry: Option<Instant>, _keep_ttl: bool) {
+    pub async fn set_kv(
+        &self,
+        key: Bytes,
+        val: Bytes,
+        expiry: Option<Either<Instant, SystemTime>>,
+        _keep_ttl: bool,
+    ) {
         let mut string_db = self.key_value.write().await;
         if let Ok(value) = str::from_utf8(&val).expect("valid utf-8").parse::<i64>() {
             string_db.insert(

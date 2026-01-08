@@ -23,6 +23,8 @@ either = "1.15.0"
 tokio-util = { version = "0.7.17", features = ["full"] }
 tokio-stream = { version = "0.1.17", features = ["full"] }
 bitflags = "2.10.0"
+tracing = { version = "0.1.44" }
+tracing-subscriber = { version = "0.3" }
 
 [workspace.dependencies]
 anyhow = "1.0.59"                                   # error handling

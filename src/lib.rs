@@ -3,6 +3,7 @@ mod connection;
 mod context;
 mod database;
 mod id;
+pub mod logging;
 mod macros;
 mod rdb;
 mod redis_stream;

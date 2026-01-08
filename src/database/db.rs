@@ -14,6 +14,7 @@ use crate::{
     command::macros::Symbol,
     database::{BlpopResponse, DatabaseValue, ReadStreamResult},
     id::Id,
+    rdb::RdbKeyValue,
 };
 
 pub type DB<T> = Arc<RwLock<hashbrown::HashMap<Bytes, T>>>;
@@ -81,5 +82,18 @@ impl RedisDatabase {
             out.sort();
             out
         }
+    }
+    pub async fn from_rdb(keys: impl IntoIterator<Item = RdbKeyValue>) -> Self {
+        let db = RedisDatabase::default();
+        for kv in keys.into_iter() {
+            db.set_kv(
+                kv.key().clone(),
+                kv.value().clone(),
+                kv.expiry().map(Either::Right),
+                false,
+            )
+            .await;
+        }
+        db
     }
 }

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 use tokio::io::AsyncReadExt;
 
 use crate::resp::RedisWrite;

@@ -8,7 +8,7 @@ use redis_proc_macros::RedisCommand;
 use crate::{
     command::{AsyncCommand, Command, CommandError},
     context::Context,
-    rdb::{EncodedRdbFile, RdbFile},
+    rdb::EncodedRdbFile,
     redis_stream::StreamParseError,
     resp::{RedisWrite, RespType},
 };

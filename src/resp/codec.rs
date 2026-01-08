@@ -2,7 +2,7 @@ use bytes::{Buf, BufMut, Bytes};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-    rdb::{EncodedRdbFile, RdbFile},
+    rdb::EncodedRdbFile,
     resp::{RedisWrite, RespType},
 };
 

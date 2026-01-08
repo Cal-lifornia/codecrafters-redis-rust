@@ -1,10 +1,26 @@
+use std::{
+    ops::Deref,
+    path::Path,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use either::Either;
 use hashbrown::HashMap;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_stream::StreamExt;
+use tokio_util::codec::{Decoder, Encoder, FramedRead};
+
+pub const RDB_KV_STR: u8 = 0;
+pub const RDB_KV_LIST: u8 = 1;
+
+const RDB_CODE_EOF: u8 = 0xFF;
+const RDB_CODE_SELECT_DB: u8 = 0xFE;
+const RDB_CODE_EXPIRY: u8 = 0xFD;
+const RDB_CODE_EXPIRY_MS: u8 = 0xFC;
+const RDB_CODE_RESIZE_DB: u8 = 0xFB;
+const RDB_CODE_AUX: u8 = 0xFA;
 
 pub struct RdbFile {
-    contents: Bytes,
     // Starts with REDIS in ascii i.e.
     // 52 45 44 49 53
     pub version: usize,
@@ -12,48 +28,129 @@ pub struct RdbFile {
     databases: DatabaseSection,
     checksum: Bytes,
 }
-pub struct RdbCodec {}
+
+impl RdbFile {
+    pub fn databases(&self) -> &[Vec<RdbKeyValue>] {
+        &self.databases.0
+    }
+}
+
+impl RdbFile {
+    pub async fn read_file(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let file = tokio::fs::File::open(path).await?;
+        let mut framed_read = FramedRead::new(file, RdbCodec::default());
+        loop {
+            if let Some(rdb) = framed_read.next().await {
+                let rdb = rdb?;
+                return Ok(rdb);
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct RdbCodec {
+    cursor: usize,
+}
 
 impl Decoder for RdbCodec {
     type Item = RdbFile;
 
-    type Error = std::io::Error;
+    type Error = anyhow::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src[0..5].to_ascii_lowercase().as_slice() != b"redis" {
+        self.cursor = 0;
+        if src[self.cursor..5].to_ascii_lowercase().as_slice() != b"redis" {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "missing Magic String 'REDIS'",
-            ));
+            )
+            .into());
         }
-        src.advance(5);
-        let version: usize = String::from_utf8_lossy(&src[0..4]).parse().map_err(|err| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, "Expected ascii number")
-        })?;
-        src.advance(4);
-        let metadata = if src[0] == RdbOpCode::Aux as u8 {
+        self.cursor += 5;
+
+        // let version: usize = String::from_utf8_lossy(&src[self.cursor..(self.cursor)])
+        //     .parse()
+        //     .map_err(|err| {
+        //         std::io::Error::new(
+        //             std::io::ErrorKind::InvalidInput,
+        //             format!("Expected ascii number {err}"),
+        //         )
+        //     })?;
+        self.cursor += 4;
+        let metadata = if src[self.cursor] == RDB_CODE_AUX {
+            self.cursor += 1;
             let mut map = HashMap::new();
-            let Some(key) = RdbLenStr::decode_stream(src)? else {
-                return Ok(None);
-            };
-            let Some(value) = RdbLenStr::decode_stream(src)? else {
-                return Ok(None);
-            };
-            map.insert(key, value);
+            loop {
+                let backup = self.cursor;
+
+                if src.get(self.cursor) == Some(&RDB_CODE_SELECT_DB) {
+                    break;
+                }
+                if let Some(key) = RdbLenStr::decode_stream(self, src)? {
+                    match key.to_ascii_lowercase().as_slice() {
+                        b"redis-ver" => {
+                            let Some(value) = RdbLenStr::decode_stream(self, src)? else {
+                                return Ok(None);
+                            };
+
+                            map.insert(key, value);
+                        }
+                        b"redis-bits" => {
+                            self.cursor += 2;
+                        }
+                        _ => {
+                            self.cursor = backup;
+                            break;
+                        }
+                    }
+                }
+            }
             map
         } else {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 "missing AUX OpCode",
-            ));
+            )
+            .into());
         };
 
-        let mut databases = vec![];
+        let mut databases = DatabaseSection(vec![]);
 
         loop {
-            if src[0] == RdbOpCode::SelectDB as u8 {
-                src.advance(1);
-                if LenEncoding::decode_size(src)?.is_some() {
+            if src[self.cursor] == RDB_CODE_SELECT_DB {
+                self.cursor += 1;
+                // IDX SIZE
+                if LenEncoding::decode_stream(self, src)?.is_some() {
+                    self.cursor += 1;
+                    if src[self.cursor] == RDB_CODE_RESIZE_DB {
+                        self.cursor += 1;
+                        // Hash table size
+                        if let Some(size) = LenEncoding::decode_stream(self, src)? {
+                            // Expiry size
+                            if LenEncoding::decode_stream(self, src)?.is_some() {
+                                let mut keys = vec![];
+                                for _ in 0..size {
+                                    if let Some(kv) = RdbKeyValue::decode_stream(self, src)? {
+                                        keys.push(kv);
+                                    } else {
+                                        return Ok(None);
+                                    }
+                                }
+                                databases.add_database(keys);
+                            } else {
+                                return Ok(None);
+                            }
+                        } else {
+                            return Ok(None);
+                        }
+                    } else {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "missing the Resize DB Op Code",
+                        )
+                        .into());
+                    }
                 } else {
                     return Ok(None);
                 }
@@ -61,20 +158,31 @@ impl Decoder for RdbCodec {
                 break;
             }
         }
+
+        if let Some(code) = src.get(self.cursor)
+            && code == &RDB_CODE_EOF
+        {
+            self.cursor += 1;
+            if let Some(checksum) = src.get(self.cursor..(self.cursor + 8)) {
+                let out = Ok(Some(RdbFile {
+                    version: 3,
+                    metadata: MetadataSection {
+                        attributes: metadata,
+                    },
+                    databases,
+                    checksum: Bytes::copy_from_slice(checksum),
+                }));
+                self.cursor += 8;
+                src.advance(self.cursor);
+                out
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
-
-pub enum RdbOpCode {
-    Eof = 0xFF,
-    // AKA Database section
-    SelectDB = 0xFE,
-    ExpireTime = 0xFD,
-    ExpireTimeMs = 0xFC,
-    ResizeDB = 0xFB,
-    // Aka Metadata
-    Aux = 0xFA,
-}
-
 pub struct MetadataSection {
     attributes: HashMap<Bytes, Bytes>,
 }
@@ -92,9 +200,9 @@ impl Encoder<DatabaseSection> for RdbCodec {
     type Error = std::io::Error;
     fn encode(&mut self, item: DatabaseSection, dst: &mut BytesMut) -> Result<(), Self::Error> {
         for (idx, db) in item.0.iter().enumerate() {
-            dst.put_u8(RdbOpCode::SelectDB as u8);
+            dst.put_u8(RDB_CODE_SELECT_DB);
             Encoder::encode(self, idx, dst)?;
-            dst.put_u8(RdbOpCode::ResizeDB as u8);
+            dst.put_u8(RDB_CODE_RESIZE_DB);
             Encoder::encode(self, db.len(), dst)?;
             let expiry_count = db.iter().filter(|value| value.expiry.is_some()).count();
             Encoder::encode(self, expiry_count, dst)?;
@@ -110,7 +218,7 @@ impl Encoder<DatabaseSection> for RdbCodec {
 pub struct RdbKeyValue {
     key: RdbLenStr,
     value: RdbLenStr,
-    kind: RdbKVKind,
+    kind: u8,
     /// If the key is expiring it's either
     /// expressed as milliseconds as an 8-byte uint in little-endian
     /// or
@@ -118,10 +226,92 @@ pub struct RdbKeyValue {
     expiry: Option<Either<u64, u32>>,
 }
 
+impl RdbKeyValue {
+    pub fn key(&self) -> &Bytes {
+        &self.key.0
+    }
+    pub fn value(&self) -> &Bytes {
+        &self.value.0
+    }
+    pub fn expiry(&self) -> Option<SystemTime> {
+        if let Some(expiry) = self.expiry {
+            match expiry {
+                Either::Left(milliseconds) => {
+                    Some(UNIX_EPOCH + Duration::from_millis(milliseconds))
+                }
+                Either::Right(seconds) => Some(UNIX_EPOCH + Duration::from_secs(seconds as u64)),
+            }
+        } else {
+            None
+        }
+    }
+}
+
+impl RdbKeyValue {
+    fn decode_stream(
+        codec: &mut RdbCodec,
+        src: &mut BytesMut,
+    ) -> Result<Option<Self>, std::io::Error> {
+        if let Some(code) = src.get(codec.cursor) {
+            match *code {
+                RDB_KV_STR => {
+                    codec.cursor += 1;
+                    let Some(key) = RdbLenStr::decode_stream(codec, src)? else {
+                        return Ok(None);
+                    };
+                    let Some(value) = RdbLenStr::decode_stream(codec, src)? else {
+                        return Ok(None);
+                    };
+                    let expiry: Option<Either<u64, u32>> = if let Some(code) = src.get(codec.cursor)
+                    {
+                        if code == &RDB_CODE_EXPIRY {
+                            codec.cursor += 1;
+                            let Some(seconds) = src.get(codec.cursor..(codec.cursor + 4)) else {
+                                return Ok(None);
+                            };
+                            let out = Some(Either::Right(u32::from_le_bytes(
+                                seconds.try_into().unwrap(),
+                            )));
+                            codec.cursor += 4;
+                            out
+                        } else if code == &RDB_CODE_EXPIRY_MS {
+                            codec.cursor += 1;
+                            let Some(milliseconds) = src.get(codec.cursor..(codec.cursor + 8))
+                            else {
+                                return Ok(None);
+                            };
+                            let out = Some(Either::Left(u64::from_le_bytes(
+                                milliseconds.try_into().unwrap(),
+                            )));
+                            codec.cursor += 8;
+                            out
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    Ok(Some(RdbKeyValue {
+                        key: key.into(),
+                        value: value.into(),
+                        kind: RDB_KV_STR,
+                        expiry,
+                    }))
+                }
+                RDB_KV_LIST => todo!(),
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 impl Encoder<RdbKeyValue> for RdbCodec {
     type Error = std::io::Error;
     fn encode(&mut self, item: RdbKeyValue, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        dst.put_u8(item.kind as u8);
+        dst.put_u8(item.kind);
         Encoder::encode(self, item.key, dst)?;
         Encoder::encode(self, item.value, dst)?;
         if let Some(expiry) = item.expiry {
@@ -138,28 +328,28 @@ impl Encoder<RdbKeyValue> for RdbCodec {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum RdbKVKind {
-    String = 0,
-    List = 1,
-}
-
 #[derive(Clone)]
 pub struct RdbLenStr(Bytes);
 
-impl RdbLenStr {
-    pub fn empty() -> Self {
-        Self(Bytes::new())
+impl Deref for RdbLenStr {
+    type Target = Bytes;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
 impl RdbLenStr {
-    fn decode_stream(src: &mut BytesMut) -> Result<Option<Bytes>, std::io::Error> {
-        if let Some(len) = LenEncoding::decode_size(src)? {
-            let out = Ok(Some(Bytes::copy_from_slice(&src[0..len])));
-            src.advance(len);
+    fn decode_stream(
+        codec: &mut RdbCodec,
+        src: &mut BytesMut,
+    ) -> Result<Option<Bytes>, std::io::Error> {
+        if let Some(len) = LenEncoding::decode_stream(codec, src)? {
+            let Some(out) = &src.get(codec.cursor..(codec.cursor + len)) else {
+                return Ok(None);
+            };
+            codec.cursor += len;
 
-            out
+            Ok(Some(Bytes::copy_from_slice(out)))
         } else {
             Ok(None)
         }
@@ -178,12 +368,6 @@ impl Encoder<RdbLenStr> for RdbCodec {
         Encoder::encode(self, item.0.len(), dst)?;
         dst.put(item.0.clone());
         Ok(())
-    }
-}
-
-impl RdbLenStr {
-    pub fn contents(&self) -> &Bytes {
-        &self.0
     }
 }
 
@@ -235,33 +419,71 @@ impl LenEncoding {
 }
 
 impl LenEncoding {
-    pub fn decode_size(src: &mut BytesMut) -> Result<Option<usize>, std::io::Error> {
-        if let Some(first) = src.get(0) {
+    pub fn decode_stream(
+        codec: &mut RdbCodec,
+        src: &mut BytesMut,
+    ) -> Result<Option<usize>, std::io::Error> {
+        if let Some(first) = src.get(codec.cursor) {
             match LenEncoding::check_val(*first) {
                 LenEncoding::BasicLen => {
-                    let len = src.get(0).unwrap() & 0b0011_1111;
-                    src.advance(1);
+                    let len = src[codec.cursor] & 0b0011_1111;
+                    codec.cursor += 1;
                     Ok(Some(len as usize))
                 }
                 LenEncoding::ReadOne => {
-                    let Some(len) = src.get(0..2) else {
+                    let Some(len) = src.get(codec.cursor..(codec.cursor + 2)) else {
                         return Ok(None);
                     };
                     let first_bit = len[0] & 0b0011_1111;
                     let out = usize::from_be_bytes(vec![first_bit, len[1]].try_into().unwrap());
-                    src.advance(2);
-                    Ok(Some(out as usize))
+                    codec.cursor += 2;
+                    Ok(Some(out))
                 }
                 LenEncoding::Discard => {
-                    src.advance(1);
-                    let Some(len) = src.get(0..4) else {
+                    codec.cursor += 1;
+                    let Some(len) = src.get(codec.cursor..(codec.cursor + 4)) else {
                         return Ok(None);
                     };
                     let out = usize::from_be_bytes(len.try_into().unwrap());
-                    src.advance(4);
-                    Ok(Some(out as usize))
+                    codec.cursor += 4;
+                    Ok(Some(out))
                 }
-                LenEncoding::Special => todo!(),
+                LenEncoding::Special => {
+                    let len = src[codec.cursor] & 0b0011_1111;
+                    println!("LEN: {len:#80b}");
+                    codec.cursor += 1;
+                    match len {
+                        0 => {
+                            if let Some(first) = src.get(codec.cursor) {
+                                let out = Ok(Some(*first as usize));
+                                codec.cursor += 1;
+                                out
+                            } else {
+                                Ok(None)
+                            }
+                        }
+                        1 => {
+                            let Some(value) = src.get(codec.cursor..(codec.cursor + 2)) else {
+                                return Ok(None);
+                            };
+                            let out = usize::from_be_bytes(value.try_into().unwrap());
+                            codec.cursor += 2;
+                            Ok(Some(out))
+                        }
+                        2 => {
+                            let Some(len) = src.get(codec.cursor..(codec.cursor + 4)) else {
+                                return Ok(None);
+                            };
+                            let out = usize::from_be_bytes(len.try_into().unwrap());
+                            codec.cursor += 4;
+                            Ok(Some(out))
+                        }
+                        _ => Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            format!("invalid value for Integer as string: {len}"),
+                        )),
+                    }
+                }
             }
         } else {
             Ok(None)

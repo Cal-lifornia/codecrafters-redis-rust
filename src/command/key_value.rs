@@ -1,7 +1,8 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use either::Either;
 use redis_proc_macros::RedisCommand;
 use tokio::time::Instant;
 
@@ -81,21 +82,25 @@ impl AsyncCommand for Set {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        let mut expires = None::<Instant>;
+        let mut expires = None::<Either<Instant, SystemTime>>;
         let mut keepttl = false;
         if let Some(expiry) = &self.expiry {
             match expiry {
                 SetExpiryOptions::Ex(seconds) => {
-                    expires = Some(Instant::now() + Duration::from_secs(*seconds));
+                    expires = Some(Either::Left(Instant::now() + Duration::from_secs(*seconds)));
                 }
                 SetExpiryOptions::Px(milliseconds) => {
-                    expires = Some(Instant::now() + Duration::from_millis(*milliseconds));
+                    expires = Some(Either::Left(
+                        Instant::now() + Duration::from_millis(*milliseconds),
+                    ));
                 }
                 SetExpiryOptions::Exat(seconds) => {
-                    expires = Some(Instant::now() + Duration::from_secs(*seconds));
+                    expires = Some(Either::Right(UNIX_EPOCH + Duration::from_secs(*seconds)));
                 }
                 SetExpiryOptions::Pxat(milliseconds) => {
-                    expires = Some(Instant::now() + Duration::from_millis(*milliseconds));
+                    expires = Some(Either::Right(
+                        UNIX_EPOCH + Duration::from_millis(*milliseconds),
+                    ));
                 }
                 SetExpiryOptions::KeepTTL => {
                     keepttl = true;
