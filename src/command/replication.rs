@@ -8,7 +8,7 @@ use redis_proc_macros::RedisCommand;
 use crate::{
     command::{AsyncCommand, Command, CommandError},
     context::Context,
-    rdb::RdbFile,
+    rdb::{EncodedRdbFile, RdbFile},
     redis_stream::StreamParseError,
     resp::{RedisWrite, RespType},
 };
@@ -126,7 +126,7 @@ impl AsyncCommand for Psync {
     ) -> Result<(), crate::server::RedisError> {
         let info = ctx.replication.read().await;
         RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
-        let rdb_file = RdbFile::open_file("static/empty.rdb").await?;
+        let rdb_file = EncodedRdbFile::open_file("static/empty.rdb").await?;
         rdb_file.write_to_buf(buf);
         if let Either::Left(main) = &ctx.role {
             main.replicas.write().await.push(ctx.writer.clone());

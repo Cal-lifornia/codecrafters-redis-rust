@@ -61,4 +61,25 @@ impl RedisDatabase {
         };
         Bytes::from_static(value.as_bytes())
     }
+    pub async fn keys(&self, filter: &Bytes) -> Vec<Bytes> {
+        let key_value = self.key_value.read().await;
+        let stream = self.streams.read().await;
+        let list = self.lists.read().await;
+        let kv_keys = key_value.keys();
+        let stream_keys = stream.keys();
+        let list_keys = list.keys();
+        let all_keys = kv_keys.chain(stream_keys).chain(list_keys);
+        if filter.to_ascii_lowercase().as_slice() == b"*" {
+            let mut out: Vec<Bytes> = all_keys.cloned().collect();
+            out.sort();
+            out
+        } else {
+            let mut out: Vec<Bytes> = all_keys
+                .filter(|key| key.starts_with(filter))
+                .cloned()
+                .collect();
+            out.sort();
+            out
+        }
+    }
 }

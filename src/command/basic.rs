@@ -92,3 +92,28 @@ impl AsyncCommand for Info {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "KEYS filter")]
+pub struct Keys {
+    filter: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Keys {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        if self.filter.ends_with(b"*") {
+            ctx.db
+                .keys(&self.filter.slice(0..(self.filter.len() - 1)))
+                .await
+                .write_to_buf(buf);
+        } else {
+            ctx.db.keys(&self.filter).await.write_to_buf(buf);
+        }
+        Ok(())
+    }
+}

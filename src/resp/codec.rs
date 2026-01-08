@@ -2,7 +2,7 @@ use bytes::{Buf, BufMut, Bytes};
 use tokio_util::codec::{Decoder, Encoder};
 
 use crate::{
-    rdb::RdbFile,
+    rdb::{EncodedRdbFile, RdbFile},
     resp::{RedisWrite, RespType},
 };
 
@@ -94,7 +94,7 @@ impl Decoder for RespCodec {
                     Ok(Some(RespType::NullBulkString))
                 } else if size >= 0 {
                     if self.rdb {
-                        let out = RdbFile::new(Bytes::copy_from_slice(&src[0..(size as usize)]));
+                        let out = EncodedRdbFile(Bytes::copy_from_slice(&src[0..(size as usize)]));
                         src.advance(size as usize);
                         self.rdb = false;
                         Ok(Some(RespType::RdbFile(out)))
