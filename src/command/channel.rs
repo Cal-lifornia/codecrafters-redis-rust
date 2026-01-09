@@ -66,8 +66,8 @@ impl AsyncCommand for Publish {
             .channels
             .read()
             .await
-            .get_channel_writers(&self.channel)
-            .await;
+            .get_channel_writers(&self.channel);
+        tracing::debug!("WRITERS_LEN: {}", writers.len());
         RespType::Integer(writers.len() as i64).write_to_buf(buf);
 
         let mut msg_buf = BytesMut::new();
@@ -83,19 +83,44 @@ impl AsyncCommand for Publish {
             let msg_buf = msg_buf.clone();
             task_set.spawn(async move { writer.write().await.write_all(&msg_buf).await });
         }
-        tokio::spawn(async move {
-            while let Some(res) = task_set.join_next().await {
-                match res {
-                    Ok(Err(err)) => {
-                        tracing::warn!("failed to write to subscribed writer: {err}");
-                    }
-                    Err(err) => {
-                        tracing::warn!("failed to join task from set: {err}");
-                    }
-                    _ => {}
-                }
+
+        for res in task_set.join_all().await {
+            if let Err(err) = res {
+                tracing::warn!("failed to write to subscribed writer: {err}");
             }
-        });
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "UNSUBSCRIBE channel")]
+pub struct Unsubscribe {
+    channel: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Unsubscribe {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        let num = ctx
+            .db
+            .channels
+            .write()
+            .await
+            .unsubscribe_from_channel(&self.channel, &ctx.writer)
+            .await?;
+
+        vec![
+            RespType::bulk_string("unsubscribe"),
+            RespType::BulkString(self.channel.clone()),
+            RespType::Integer(num as i64),
+        ]
+        .write_to_buf(buf);
         Ok(())
     }
 }
