@@ -92,9 +92,21 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
         {
             RespType::simple_string("QUEUED").write_to_buf(&mut buf);
             list.push(command);
+        }
+        // If the writer is in subscribe mode check the command that is run
+        else if !matches!(
+            command.name().to_lowercase().as_str(),
+            "subscribe" | "unsubscribe" | "psubscribe" | "punsubscribe" | "ping" | "quit"
+        ) && ctx.db.channels.read().await.subscribed(&ctx.writer).await?
+        {
+            RespType::simple_error(
+                format!("Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
+                command.name())
+            ).write_to_buf(&mut buf);
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
+
         let mut get_ack = ctx.get_ack.write().await;
         if !ctx.master_conn || *get_ack {
             *get_ack = false;

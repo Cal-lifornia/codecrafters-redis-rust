@@ -24,7 +24,7 @@ impl ChannelDB {
         let hasher = DefaultHashBuilder::default();
         let hash = hasher.hash_one(channel);
         if self.channels.find(hash, |val| val.right == addr).is_some() {
-            Ok(self.num_channels(writer).await?)
+            Ok(self.num_channels(&writer).await?)
         } else {
             self.channels
                 .insert_unique(hash, Pair::new(writer, addr), |_val| hash);
@@ -41,12 +41,17 @@ impl ChannelDB {
         }
     }
 
-    pub async fn num_channels(&self, writer: ConnWriter) -> std::io::Result<usize> {
+    pub async fn num_channels(&self, writer: &ConnWriter) -> std::io::Result<usize> {
         let addr = writer.read().await.peer_addr()?;
         if let Some(subs) = self.subscriptions.get(&addr) {
             Ok(subs.len())
         } else {
             Ok(0)
         }
+    }
+
+    pub async fn subscribed(&self, writer: &ConnWriter) -> std::io::Result<bool> {
+        let addr = writer.read().await.peer_addr()?;
+        Ok(self.subscriptions.get(&addr).is_some())
     }
 }

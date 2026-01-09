@@ -5,7 +5,6 @@ use redis_proc_macros::RedisCommand;
 use crate::{
     command::AsyncCommand,
     resp::{RedisWrite, RespType},
-    server::RedisError,
 };
 
 #[derive(RedisCommand)]
