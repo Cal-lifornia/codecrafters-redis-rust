@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
+use tokio::task::JoinSet;
 
 use crate::{
     command::AsyncCommand,
@@ -43,5 +44,31 @@ impl AsyncCommand for Subscribe {
                 }
             }
         }
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "PUBLISH channel message")]
+pub struct Publish {
+    channel: Bytes,
+    message: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Publish {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        let writers = ctx
+            .db
+            .channels
+            .read()
+            .await
+            .get_channel_writers(&self.channel)
+            .await;
+        RespType::Integer(writers.len() as i64).write_to_buf(buf);
+        Ok(())
     }
 }

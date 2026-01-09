@@ -12,6 +12,7 @@ use crate::server::RedisError;
 pub struct ChannelDB {
     channels: HashTable<Pair<ConnWriter, SocketAddr>>,
     subscriptions: HashMap<SocketAddr, Vec<usize>>,
+    hasher: DefaultHashBuilder,
 }
 
 impl ChannelDB {
@@ -21,8 +22,7 @@ impl ChannelDB {
         writer: ConnWriter,
     ) -> Result<usize, RedisError> {
         let addr = writer.read().await.peer_addr()?;
-        let hasher = DefaultHashBuilder::default();
-        let hash = hasher.hash_one(channel);
+        let hash = self.hasher.hash_one(channel);
         if self.channels.find(hash, |val| val.right == addr).is_some() {
             Ok(self.num_channels(&writer).await?)
         } else {
@@ -53,5 +53,13 @@ impl ChannelDB {
     pub async fn subscribed(&self, writer: &ConnWriter) -> std::io::Result<bool> {
         let addr = writer.read().await.peer_addr()?;
         Ok(self.subscriptions.get(&addr).is_some())
+    }
+
+    pub async fn get_channel_writers(&self, channel: &Bytes) -> Vec<ConnWriter> {
+        let hash = self.hasher.hash_one(channel);
+        self.channels
+            .iter_hash(hash)
+            .map(|val| val.left.clone())
+            .collect()
     }
 }
