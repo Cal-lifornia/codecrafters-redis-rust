@@ -24,10 +24,14 @@ impl ParseStream for Ping {
 impl AsyncCommand for Ping {
     async fn run_command(
         &self,
-        _ctx: &crate::context::Context,
+        ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        RespType::simple_string("PONG").write_to_buf(buf);
+        if ctx.db.channels.read().await.subscribed(&ctx.writer).await? {
+            RespType::from(["pong", ""].iter()).write_to_buf(buf);
+        } else {
+            RespType::simple_string("PONG").write_to_buf(buf);
+        }
         Ok(())
     }
 }
