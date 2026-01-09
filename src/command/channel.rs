@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use redis_proc_macros::RedisCommand;
-use tokio::task::JoinSet;
+use tokio::{io::AsyncWriteExt, task::JoinSet};
 
 use crate::{
     command::AsyncCommand,
@@ -69,6 +69,33 @@ impl AsyncCommand for Publish {
             .get_channel_writers(&self.channel)
             .await;
         RespType::Integer(writers.len() as i64).write_to_buf(buf);
+
+        let mut msg_buf = BytesMut::new();
+        vec![
+            Bytes::from("message"),
+            self.channel.clone(),
+            self.message.clone(),
+        ]
+        .write_to_buf(&mut msg_buf);
+        let mut task_set = JoinSet::new();
+        for writer in writers {
+            let writer = writer.clone();
+            let msg_buf = msg_buf.clone();
+            task_set.spawn(async move { writer.write().await.write_all(&msg_buf).await });
+        }
+        tokio::spawn(async move {
+            while let Some(res) = task_set.join_next().await {
+                match res {
+                    Ok(Err(err)) => {
+                        tracing::warn!("failed to write to subscribed writer: {err}");
+                    }
+                    Err(err) => {
+                        tracing::warn!("failed to join task from set: {err}");
+                    }
+                    _ => {}
+                }
+            }
+        });
         Ok(())
     }
 }
