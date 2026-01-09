@@ -5,6 +5,7 @@ use redis_proc_macros::RedisCommand;
 use crate::{
     command::AsyncCommand,
     resp::{RedisWrite, RespType},
+    server::RedisError,
 };
 
 #[derive(RedisCommand)]
@@ -20,15 +21,28 @@ impl AsyncCommand for Subscribe {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        ctx.db
-            .subscibe_to_channel(self.channel.clone(), ctx.writer.clone())
-            .await;
-        vec![
-            RespType::bulk_string("subscribe"),
-            RespType::BulkString(self.channel.clone()),
-            RespType::Integer(1),
-        ]
-        .write_to_buf(buf);
-        Ok(())
+        let mut channels = ctx.db.channels.write().await;
+        match channels
+            .subscribe_to_channel(self.channel.clone(), ctx.writer.clone())
+            .await
+        {
+            Ok(num) => {
+                vec![
+                    RespType::bulk_string("subscribe"),
+                    RespType::BulkString(self.channel.clone()),
+                    RespType::Integer(num as i64),
+                ]
+                .write_to_buf(buf);
+                Ok(())
+            }
+            Err(err) => {
+                if let crate::server::RedisError::Other(err_msg) = err {
+                    RespType::simple_error(err_msg).write_to_buf(buf);
+                    Ok(())
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 }

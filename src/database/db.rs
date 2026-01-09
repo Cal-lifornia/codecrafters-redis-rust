@@ -10,10 +10,9 @@ use tokio::{
 };
 
 use crate::{
-    Pair,
+    ArcLock, Pair,
     command::macros::Symbol,
-    context::ConnWriter,
-    database::{BlpopResponse, DatabaseValue, ReadStreamResult},
+    database::{BlpopResponse, DatabaseValue, ReadStreamResult, channels::ChannelDB},
     id::Id,
     rdb::RdbKeyValue,
 };
@@ -43,10 +42,9 @@ type StreamBlocklist =
 #[derive(Default)]
 pub struct RedisDatabase {
     pub(crate) key_value: DB<DatabaseValue>,
-    // pub(crate) nums: DB<i32>,
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
-    pub(crate) channels: DB<Vec<ConnWriter>>,
+    pub(crate) channels: ArcLock<ChannelDB>,
     pub(crate) list_blocklist: Blocklist<Vec<Blocker<oneshot::Sender<BlpopResponse>>>>,
     pub(crate) stream_blocklist: StreamBlocklist,
 }
