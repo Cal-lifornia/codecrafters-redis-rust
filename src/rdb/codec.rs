@@ -10,8 +10,6 @@ use hashbrown::HashMap;
 use tokio_stream::StreamExt;
 use tokio_util::codec::{Decoder, Encoder, FramedRead};
 
-use crate::database::RedisDatabase;
-
 pub const RDB_KV_STR: u8 = 0;
 pub const RDB_KV_LIST: u8 = 1;
 
@@ -22,6 +20,7 @@ const RDB_CODE_EXPIRY_MS: u8 = 0xFC;
 const RDB_CODE_RESIZE_DB: u8 = 0xFB;
 const RDB_CODE_AUX: u8 = 0xFA;
 
+#[allow(unused)]
 pub struct RdbFile {
     // Starts with REDIS in ascii i.e.
     // 52 45 44 49 53
@@ -187,6 +186,7 @@ impl Decoder for RdbCodec {
     }
 }
 pub struct MetadataSection {
+    #[allow(unused)]
     attributes: HashMap<Bytes, Bytes>,
 }
 

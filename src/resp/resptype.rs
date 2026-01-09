@@ -16,6 +16,12 @@ pub enum RespType {
     RdbFile(EncodedRdbFile),
 }
 
+impl RespType {
+    pub fn bulk_string<S: Display>(value: S) -> RespType {
+        RespType::BulkString(Bytes::from(value.to_string()))
+    }
+}
+
 impl<I: Iterator<Item = S>, S: Display> From<I> for RespType {
     fn from(value: I) -> Self {
         let out: Vec<RespType> = value

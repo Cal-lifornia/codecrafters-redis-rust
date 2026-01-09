@@ -10,6 +10,8 @@ use crate::{
     replica::{MainServer, Replica, ReplicationInfo},
 };
 
+pub type ConnWriter = ArcLock<OwnedWriteHalf>;
+
 #[derive(Clone)]
 pub struct Context {
     pub db: Arc<RedisDatabase>,

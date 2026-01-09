@@ -12,6 +12,7 @@ use tokio::{
 use crate::{
     Pair,
     command::macros::Symbol,
+    context::ConnWriter,
     database::{BlpopResponse, DatabaseValue, ReadStreamResult},
     id::Id,
     rdb::RdbKeyValue,
@@ -45,6 +46,7 @@ pub struct RedisDatabase {
     // pub(crate) nums: DB<i32>,
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
+    pub(crate) channels: DB<Vec<ConnWriter>>,
     pub(crate) list_blocklist: Blocklist<Vec<Blocker<oneshot::Sender<BlpopResponse>>>>,
     pub(crate) stream_blocklist: StreamBlocklist,
 }
