@@ -30,17 +30,22 @@ impl RedisDatabase {
             None
         }
     }
-    pub async fn range_sorted_set(&self, key: &Bytes, start: usize, end: usize) -> Vec<Bytes> {
+    pub async fn range_sorted_set(&self, key: &Bytes, start: i64, end: i64) -> Vec<Bytes> {
         let sets = self.sets.read().await;
         if let Some(set) = sets.get(key) {
-            let end = (set.len() - 1).min(end);
+            let end = if end.is_negative() {
+                (set.len()).saturating_sub(end.unsigned_abs() as usize)
+            } else {
+                (set.len() - 1).min(end as usize)
+            };
+            let start = if start.is_negative() {
+                (set.len()).saturating_sub((start.unsigned_abs()) as usize)
+            } else {
+                start as usize
+            };
             if start > end {
                 return vec![];
             }
-            tracing::debug!("SET: {set:#?}");
-            tracing::debug!("START: {start}");
-            tracing::debug!("END: {start}");
-
             if let Some(value) = set.get_range(start..=end) {
                 value.keys().cloned().collect()
             } else {

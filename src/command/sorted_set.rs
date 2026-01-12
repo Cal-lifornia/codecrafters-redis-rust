@@ -4,7 +4,7 @@ use redis_proc_macros::RedisCommand;
 
 use crate::{
     command::AsyncCommand,
-    resp::{NullArray, NullBulkString, RedisWrite, RespType},
+    resp::{NullBulkString, RedisWrite, RespType},
 };
 
 #[derive(RedisCommand)]
@@ -58,8 +58,8 @@ impl AsyncCommand for Zrank {
 #[redis_command(syntax = "ZRANGE key start end")]
 pub struct Zrange {
     key: Bytes,
-    start: usize,
-    end: usize,
+    start: i64,
+    end: i64,
 }
 
 #[async_trait]
