@@ -1,4 +1,3 @@
-use std::hash::Hash;
 use std::net::SocketAddr;
 
 use bytes::Bytes;
