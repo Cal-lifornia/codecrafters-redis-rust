@@ -72,4 +72,16 @@ impl RedisDatabase {
             None
         }
     }
+    pub async fn remove_set_member(&self, key: &Bytes, member: &Bytes) -> usize {
+        let mut sets = self.sets.write().await;
+        if let Some(set) = sets.get_mut(key) {
+            if set.shift_remove(member).is_some() {
+                1
+            } else {
+                0
+            }
+        } else {
+            0
+        }
+    }
 }

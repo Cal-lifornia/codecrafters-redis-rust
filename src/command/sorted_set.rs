@@ -118,3 +118,23 @@ impl AsyncCommand for Zscore {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "ZREM key member")]
+pub struct Zrem {
+    key: Bytes,
+    member: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Zrem {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        let num = ctx.db.remove_set_member(&self.key, &self.member).await;
+        RespType::Integer(num as i64).write_to_buf(buf);
+        Ok(())
+    }
+}
