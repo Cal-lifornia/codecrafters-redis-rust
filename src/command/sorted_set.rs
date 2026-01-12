@@ -77,3 +77,22 @@ impl AsyncCommand for Zrange {
         Ok(())
     }
 }
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "ZCARD key")]
+pub struct Zcard {
+    key: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Zcard {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        let len = ctx.db.count_sorted_set(&self.key).await;
+        RespType::Integer(len as i64).write_to_buf(buf);
+        Ok(())
+    }
+}

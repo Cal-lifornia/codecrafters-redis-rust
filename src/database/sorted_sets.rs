@@ -55,4 +55,12 @@ impl RedisDatabase {
             vec![]
         }
     }
+    pub async fn count_sorted_set(&self, key: &Bytes) -> usize {
+        let sets = self.sets.read().await;
+        if let Some(set) = sets.get(key) {
+            set.len()
+        } else {
+            0
+        }
+    }
 }
