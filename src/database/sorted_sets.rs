@@ -22,12 +22,32 @@ impl RedisDatabase {
             1
         }
     }
-    pub async fn get_rank(&self, key: &Bytes, member: &Bytes) -> Option<usize> {
+    pub async fn get_set_member_rank(&self, key: &Bytes, member: &Bytes) -> Option<usize> {
         let sets = self.sets.read().await;
         if let Some(set) = sets.get(key) {
             set.get_index_of(member)
         } else {
             None
+        }
+    }
+    pub async fn range_sorted_set(&self, key: &Bytes, start: usize, end: usize) -> Vec<Bytes> {
+        let sets = self.sets.read().await;
+        if let Some(set) = sets.get(key) {
+            let end = (set.len() - 1).min(end);
+            if start > end {
+                return vec![];
+            }
+            tracing::debug!("SET: {set:#?}");
+            tracing::debug!("START: {start}");
+            tracing::debug!("END: {start}");
+
+            if let Some(value) = set.get_range(start..=end) {
+                value.keys().cloned().collect()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
         }
     }
 }
