@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytes::BytesMut;
 use tokio::{
-    io::BufReader,
+    io::{AsyncWriteExt, BufReader},
     net::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -65,17 +65,21 @@ impl Connection {
                     let cmd = match result {
                         Ok(cmd) => cmd,
                         Err(err) => {
-                            let mut results = BytesMut::new();
+                            let mut buf = BytesMut::new();
                             tracing::error!("ERROR {err}");
-                            RespType::simple_error(err.to_string()).write_to_buf(&mut results);
-                            return;
+                            RespType::simple_error(err.to_string()).write_to_buf(&mut buf);
+                            let mut writer = ctx.writer.write().await;
+                            writer.write_all(&buf).await.expect("valid read");
+                            continue;
                         }
                     };
                     if let Err(err) = handle_command(ctx.clone(), cmd).await {
-                        let mut results = BytesMut::new();
+                        let mut buf = BytesMut::new();
                         tracing::error!("ERROR {err}");
-                        RespType::simple_error(err.to_string()).write_to_buf(&mut results);
-                        return;
+                        RespType::simple_error(err.to_string()).write_to_buf(&mut buf);
+                        let mut writer = ctx.writer.write().await;
+                        writer.write_all(&buf).await.expect("valid read");
+                        continue;
                     }
                 }
             }

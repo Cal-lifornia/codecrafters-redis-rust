@@ -8,7 +8,7 @@ use crate::{
     command::{CommandError, get_command},
     connection::Connection,
     context::{Config, Context},
-    database::RedisDatabase,
+    database::{LocationError, RedisDatabase},
     rdb::RdbFile,
     redis_stream::{RedisStream, StreamParseError},
     replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
@@ -134,6 +134,8 @@ pub enum RedisError {
     Io(#[from] std::io::Error),
     #[error("{0}")]
     Replica(#[from] ReplicaError),
+    #[error("{0}")]
+    Location(#[from] LocationError),
     #[error("{0}")]
     Other(String),
 }

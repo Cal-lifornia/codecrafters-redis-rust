@@ -4,6 +4,7 @@ use redis_proc_macros::RedisCommand;
 
 use crate::{
     command::AsyncCommand,
+    database::Location,
     resp::{RedisWrite, RespType},
 };
 
@@ -23,10 +24,7 @@ impl AsyncCommand for Geoadd {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        let location = crate::database::Location {
-            longitude: self.longitude,
-            latitude: self.latitude,
-        };
+        let location = Location::new(self.longitude, self.latitude)?;
         let num = ctx
             .db
             .insert_geo_location(self.key.clone(), self.member.clone(), location)
