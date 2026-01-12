@@ -4,9 +4,9 @@ use bytes::Bytes;
 
 use crate::{
     command::{
-        Blpop, ConfigGet, Discard, Echo, Exec, Get, Incr, Info, Keys, LLen, Lpop, Lpush, Lrange,
-        Multi, Ping, Psync, Publish, Replconf, Rpush, Set, Subscribe, TypeCmd, Unsubscribe, Wait,
-        Xadd, Xrange, Xread, Zadd, Zcard, Zrange, Zrank, Zrem, Zscore,
+        Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Get, Incr, Info, Keys, LLen, Lpop, Lpush,
+        Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush, Set, Subscribe, TypeCmd, Unsubscribe,
+        Wait, Xadd, Xrange, Xread, Zadd, Zcard, Zrange, Zrank, Zrem, Zscore,
     },
     redis_stream::{ParseStream, RedisStream, StreamParseError},
     server::RedisError,
@@ -57,6 +57,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"zcard" => Ok(Box::new(Zcard::parse_stream(stream)?)),
         b"zscore" => Ok(Box::new(Zscore::parse_stream(stream)?)),
         b"zrem" => Ok(Box::new(Zrem::parse_stream(stream)?)),
+        b"geoadd" => Ok(Box::new(Geoadd::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
