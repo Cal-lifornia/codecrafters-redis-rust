@@ -187,9 +187,7 @@ impl ParseStream for usize {
 impl ParseStream for f64 {
     fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
         if let Some(value) = stream.next() {
-            Ok(String::from_utf8(value.to_vec())
-                .expect("valid utf-8")
-                .parse()?)
+            Ok(String::from_utf8_lossy(&value).parse::<f64>()?)
         } else {
             Err(StreamParseError::EmptyArg)
         }

@@ -1,0 +1,12 @@
+use bytes::Bytes;
+
+use crate::database::RedisDatabase;
+
+impl RedisDatabase {
+    pub async fn insert_sorted_set(&self, key: Bytes, member: Bytes, score: f64) -> usize {
+        let mut sets = self.sets.write().await;
+        let set = sets.entry(key).or_default();
+        set.insert(member, score);
+        1
+    }
+}

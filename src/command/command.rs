@@ -6,7 +6,7 @@ use crate::{
     command::{
         Blpop, ConfigGet, Discard, Echo, Exec, Get, Incr, Info, Keys, LLen, Lpop, Lpush, Lrange,
         Multi, Ping, Psync, Publish, Replconf, Rpush, Set, Subscribe, TypeCmd, Unsubscribe, Wait,
-        Xadd, Xrange, Xread,
+        Xadd, Xrange, Xread, Zadd,
     },
     redis_stream::{ParseStream, RedisStream, StreamParseError},
     server::RedisError,
@@ -51,6 +51,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"subscribe" => Ok(Box::new(Subscribe::parse_stream(stream)?)),
         b"unsubscribe" => Ok(Box::new(Unsubscribe::parse_stream(stream)?)),
         b"publish" => Ok(Box::new(Publish::parse_stream(stream)?)),
+        b"zadd" => Ok(Box::new(Zadd::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
