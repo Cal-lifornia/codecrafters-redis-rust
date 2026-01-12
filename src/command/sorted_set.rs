@@ -96,3 +96,25 @@ impl AsyncCommand for Zcard {
         Ok(())
     }
 }
+#[derive(RedisCommand)]
+#[redis_command(syntax = "ZSCORE key member")]
+pub struct Zscore {
+    key: Bytes,
+    member: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Zscore {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        if let Some(score) = ctx.db.get_set_member_score(&self.key, &self.member).await {
+            RespType::BulkString(score.to_string().into()).write_to_buf(buf);
+        } else {
+            NullBulkString.write_to_buf(buf);
+        }
+        Ok(())
+    }
+}

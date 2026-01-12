@@ -63,4 +63,13 @@ impl RedisDatabase {
             0
         }
     }
+
+    pub async fn get_set_member_score(&self, key: &Bytes, member: &Bytes) -> Option<f64> {
+        let sets = self.sets.read().await;
+        if let Some(set) = sets.get(key) {
+            set.get(member).copied()
+        } else {
+            None
+        }
+    }
 }
