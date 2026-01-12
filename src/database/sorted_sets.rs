@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use indexmap::IndexMap;
 
 use crate::database::RedisDatabase;
 
@@ -9,6 +8,11 @@ impl RedisDatabase {
         let set = sets.entry(key).or_default();
         if let Some(current_score) = set.get_mut(&member) {
             *current_score = score;
+            // set.sort_by(|curr_mem, curr_score, other_mem, other_score| {
+            //     curr_score
+            //         .total_cmp(other_score)
+            //         .then(curr_mem.cmp(other_mem))
+            // });
             0
         } else {
             set.insert_sorted_by(

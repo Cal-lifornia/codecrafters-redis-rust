@@ -24,10 +24,10 @@ impl AsyncCommand for Geoadd {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        let location = Location::new(self.longitude, self.latitude)?;
+        let location = Location::new(self.latitude, self.longitude)?.encode();
         let num = ctx
             .db
-            .insert_sorted_set(self.key.clone(), self.member.clone(), location.into())
+            .insert_sorted_set(self.key.clone(), self.member.clone(), location as f64)
             .await;
         RespType::Integer(num as i64).write_to_buf(buf);
         Ok(())

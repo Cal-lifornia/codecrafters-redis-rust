@@ -12,7 +12,7 @@ use tokio::{
 use crate::{
     ArcLock, Pair,
     command::macros::Symbol,
-    database::{BlpopResponse, DatabaseValue, Location, ReadStreamResult, channels::ChannelDB},
+    database::{BlpopResponse, DatabaseValue, ReadStreamResult, channels::ChannelDB},
     id::Id,
     rdb::RdbKeyValue,
 };

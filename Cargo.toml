@@ -25,6 +25,7 @@ tokio-stream = { version = "0.1.17", features = ["full"] }
 bitflags = "2.10.0"
 tracing = { version = "0.1.44" }
 tracing-subscriber = { version = "0.3" }
+rstest = "0.26.1"
 
 [workspace.dependencies]
 anyhow = "1.0.59"                                   # error handling
