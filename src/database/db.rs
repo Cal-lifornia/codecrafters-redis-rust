@@ -45,7 +45,6 @@ pub struct RedisDatabase {
     pub(crate) streams: DB<IndexMap<Id, HashMap<Bytes, Bytes>>>,
     pub(crate) lists: DB<VecDeque<Bytes>>,
     pub(crate) sets: DB<IndexMap<Bytes, f64>>,
-    pub(crate) geo: DB<IndexMap<Bytes, Location>>,
     pub(crate) channels: ArcLock<ChannelDB>,
     pub(crate) list_blocklist: Blocklist<Vec<Blocker<oneshot::Sender<BlpopResponse>>>>,
     pub(crate) stream_blocklist: StreamBlocklist,

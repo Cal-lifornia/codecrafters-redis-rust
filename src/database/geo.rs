@@ -26,25 +26,21 @@ impl Location {
     }
 }
 
+impl TryFrom<(f64, f64)> for Location {
+    type Error = LocationError;
+    fn try_from(value: (f64, f64)) -> Result<Self, Self::Error> {
+        Self::new(value.0, value.1)
+    }
+}
+
+impl From<Location> for f64 {
+    fn from(value: Location) -> Self {
+        value.longitude.to_radians() + value.latitude.to_radians()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum LocationError {
     #[error("invalid longitude,latitude pair {0},{1}")]
     InvalidLongLatPair(f64, f64),
-}
-
-impl RedisDatabase {
-    pub async fn insert_geo_location(
-        &self,
-        key: Bytes,
-        member: Bytes,
-        location: Location,
-    ) -> usize {
-        let mut geo = self.geo.write().await;
-        let set = geo.entry(key).or_default();
-        if set.insert(member, location).is_some() {
-            0
-        } else {
-            1
-        }
-    }
 }

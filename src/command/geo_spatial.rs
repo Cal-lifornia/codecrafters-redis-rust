@@ -27,7 +27,7 @@ impl AsyncCommand for Geoadd {
         let location = Location::new(self.longitude, self.latitude)?;
         let num = ctx
             .db
-            .insert_geo_location(self.key.clone(), self.member.clone(), location)
+            .insert_sorted_set(self.key.clone(), self.member.clone(), location.into())
             .await;
         RespType::Integer(num as i64).write_to_buf(buf);
         Ok(())
