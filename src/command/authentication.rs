@@ -25,10 +25,12 @@ impl AsyncCommand for Acl {
                 RespType::bulk_string(ctx.account.read().await.username.clone()).write_to_buf(buf);
             }
             b"getuser" => {
-                let flags = &ctx.account.read().await.flags;
+                let account = &ctx.account.read().await;
                 RespType::Array(vec![
                     RespType::bulk_string("flags"),
-                    RespType::from(flags.iter()),
+                    RespType::from(account.flags.iter()),
+                    RespType::bulk_string("passwords"),
+                    RespType::from(account.passwords.iter()),
                 ])
                 .write_to_buf(buf);
             }

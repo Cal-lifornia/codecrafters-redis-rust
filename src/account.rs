@@ -6,6 +6,7 @@ use hashbrown::HashSet;
 pub struct Account {
     pub username: String,
     pub flags: HashSet<AccountFlag>,
+    pub passwords: Vec<String>,
 }
 
 impl Default for Account {
@@ -13,6 +14,7 @@ impl Default for Account {
         Self {
             username: "default".into(),
             flags: HashSet::from([AccountFlag::NoPass]),
+            passwords: vec![],
         }
     }
 }
