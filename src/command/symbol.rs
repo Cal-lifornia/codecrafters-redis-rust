@@ -44,3 +44,5 @@ symbol_parse!(SymbolStreams, "streams");
 symbol_parse!(SymbolBlock, "block");
 symbol_parse!(SymbolDollar, "$");
 symbol_parse!(SymbolGet, "get");
+symbol_parse!(SymbolFromLonLat, "fromlonlat");
+symbol_parse!(SymbolByRadius, "byradius");

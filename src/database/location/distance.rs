@@ -28,6 +28,7 @@ impl Coordinates {
         }
     }
 }
+
 fn get_lat_distance(lat_deg: f64, other_lat_deg: f64) -> f64 {
     EARTH_RADIUS * (other_lat_deg.to_radians() - lat_deg.to_radians()).abs()
 }

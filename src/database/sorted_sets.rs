@@ -105,4 +105,22 @@ impl RedisDatabase {
             None
         }
     }
+
+    pub async fn search_area(&self, key: &Bytes, coord: Coordinates, radius: f64) -> Vec<Bytes> {
+        let sets = self.sets.read().await;
+        if let Some(set) = sets.get(key) {
+            set.iter()
+                .filter_map(|(member, score)| {
+                    let location = Coordinates::decode(*score as u64);
+                    if coord.distance(&location) < radius {
+                        Some(member.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        }
+    }
 }

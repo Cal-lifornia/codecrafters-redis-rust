@@ -3,7 +3,7 @@ use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
-    command::AsyncCommand,
+    command::{AsyncCommand, SymbolByRadius, SymbolFromLonLat},
     database::Coordinates,
     resp::{NullBulkString, RedisWrite, RespType},
 };
@@ -84,6 +84,41 @@ impl AsyncCommand for Geodist {
         } else {
             NullBulkString.write_to_buf(buf);
         }
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "GEOSEARCH key FROMONLAT longitude latitude BYRADIUS radius m")]
+pub struct Geosearch {
+    key: Bytes,
+    #[allow(unused)]
+    fromlonlat: SymbolFromLonLat,
+    longitude: f64,
+    latitude: f64,
+    #[allow(unused)]
+    byradius: SymbolByRadius,
+    radius: f64,
+    #[allow(unused)]
+    metre: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Geosearch {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        let results = ctx
+            .db
+            .search_area(
+                &self.key,
+                Coordinates::new(self.latitude, self.longitude)?,
+                self.radius,
+            )
+            .await;
+        results.write_to_buf(buf);
         Ok(())
     }
 }
