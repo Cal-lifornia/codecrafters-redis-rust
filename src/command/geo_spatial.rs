@@ -3,10 +3,9 @@ use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
-    Pair,
     command::AsyncCommand,
-    database::Location,
-    resp::{RedisWrite, RespType},
+    database::Coordinates,
+    resp::{NullBulkString, RedisWrite, RespType},
 };
 
 #[derive(RedisCommand)]
@@ -25,7 +24,7 @@ impl AsyncCommand for Geoadd {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
-        let location = Location::new(self.latitude, self.longitude)?.encode();
+        let location = Coordinates::new(self.latitude, self.longitude)?.encode();
         let num = ctx
             .db
             .insert_set_member(self.key.clone(), self.member.clone(), location as f64)
@@ -51,12 +50,40 @@ impl AsyncCommand for Geopos {
         let mut results = vec![];
         for member in &self.members {
             if let Some(geo_code) = ctx.db.get_set_member_score(&self.key, member).await {
-                results.push(RespType::from(Location::decode(geo_code as u64)));
+                results.push(RespType::from(Coordinates::decode(geo_code as u64)));
             } else {
                 results.push(RespType::NullArray);
             }
         }
         results.write_to_buf(buf);
+        Ok(())
+    }
+}
+
+#[derive(RedisCommand)]
+#[redis_command(syntax = "GEODIST key first second")]
+pub struct Geodist {
+    key: Bytes,
+    first: Bytes,
+    second: Bytes,
+}
+
+#[async_trait]
+impl AsyncCommand for Geodist {
+    async fn run_command(
+        &self,
+        ctx: &crate::context::Context,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<(), crate::server::RedisError> {
+        if let Some(distance) = ctx
+            .db
+            .get_distance(&self.key, &self.first, &self.second)
+            .await
+        {
+            RespType::bulk_string(distance.to_string()).write_to_buf(buf);
+        } else {
+            NullBulkString.write_to_buf(buf);
+        }
         Ok(())
     }
 }

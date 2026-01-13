@@ -14,11 +14,11 @@ use tokio_util::codec::FramedRead;
 
 use crate::{
     ArcLock,
+    command::handle_command,
     context::{Config, Context},
     database::RedisDatabase,
     replica::{RedisRole, ReplicationInfo},
     resp::{RedisWrite, RespCodec, RespType},
-    server::handle_command,
 };
 
 #[derive(Clone)]

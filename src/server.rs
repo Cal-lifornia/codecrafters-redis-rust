@@ -1,18 +1,16 @@
 use std::{path::PathBuf, sync::Arc};
 
-use bytes::BytesMut;
 use either::Either;
-use tokio::{io::AsyncWriteExt, net::TcpListener, sync::RwLock};
+use tokio::{net::TcpListener, sync::RwLock};
 
 use crate::{
-    command::{CommandError, get_command},
+    command::CommandError,
     connection::Connection,
-    context::{Config, Context},
+    context::Config,
     database::{LocationError, RedisDatabase},
     rdb::RdbFile,
-    redis_stream::{RedisStream, StreamParseError},
+    redis_stream::StreamParseError,
     replica::{MainServer, Replica, ReplicaError, ReplicationInfo},
-    resp::{RedisWrite, RespType},
 };
 
 pub async fn run(
@@ -71,57 +69,6 @@ pub async fn run(
             )
             .await;
     }
-}
-
-pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisError> {
-    let mut redis_stream = RedisStream::try_from(input.clone())?;
-    let mut buf = BytesMut::new();
-    if let Some(next) = redis_stream.next() {
-        let command = get_command(next, &mut redis_stream)?;
-        let write = command.is_write_cmd();
-        if let Either::Left(main) = &ctx.role
-            && write
-        {
-            *main.need_offset.write().await = true;
-            main.write_to_replicas(input.clone()).await;
-        }
-        if (!matches!(
-            command.name().to_lowercase().as_str(),
-            "multi" | "exec" | "discard"
-        )) && let Some(list) = ctx.transactions.write().await.as_mut()
-        {
-            RespType::simple_string("QUEUED").write_to_buf(&mut buf);
-            list.push(command);
-        }
-        // If the writer is in subscribe mode check the command that is run
-        else if !matches!(
-            command.name().to_lowercase().as_str(),
-            "subscribe" | "unsubscribe" | "psubscribe" | "punsubscribe" | "ping" | "quit"
-        ) && ctx.db.channels.read().await.subscribed(&ctx.writer).await?
-        {
-            RespType::simple_error(
-                format!("Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-                command.name())
-            ).write_to_buf(&mut buf);
-        } else {
-            command.run_command(&ctx, &mut buf).await?
-        }
-
-        let mut get_ack = ctx.get_ack.write().await;
-        if !ctx.master_conn || *get_ack {
-            *get_ack = false;
-            let mut writer = ctx.writer.write().await;
-            writer.write_all(&buf).await.expect("valid read");
-        }
-        if ctx.role.is_right() {
-            let mut info = ctx.replication.write().await;
-            info.offset += input.byte_size() as i64;
-        }
-    } else {
-        return Err(RedisError::Other("expected a value".into()));
-    }
-
-    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]

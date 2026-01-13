@@ -1,6 +1,6 @@
 use bytes::Bytes;
 
-use crate::database::RedisDatabase;
+use crate::database::{Coordinates, RedisDatabase};
 
 impl RedisDatabase {
     pub async fn insert_set_member(&self, key: Bytes, member: Bytes, score: f64) -> usize {
@@ -87,6 +87,22 @@ impl RedisDatabase {
             }
         } else {
             0
+        }
+    }
+    pub async fn get_distance(&self, key: &Bytes, first: &Bytes, second: &Bytes) -> Option<f64> {
+        let sets = self.sets.read().await;
+        if let Some(set) = sets.get(key) {
+            if let Some(first_geo) = set.get(first)
+                && let Some(second_geo) = set.get(second)
+            {
+                let first_coord = Coordinates::decode(*first_geo as u64);
+                let second_coord = Coordinates::decode(*second_geo as u64);
+                Some(first_coord.distance(&second_coord))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 }

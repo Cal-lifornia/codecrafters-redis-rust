@@ -1,11 +1,11 @@
 use crate::resp::{RedisWrite, RespType};
 
 #[derive(Clone, Copy)]
-pub struct Location {
+pub struct Coordinates {
     latitude: f64,
     longitude: f64,
 }
-impl Location {
+impl Coordinates {
     pub const MIN_LATITUDE: f64 = -85.05112878;
     pub const MAX_LATITUDE: f64 = 85.05112878;
     pub const MIN_LONGITUDE: f64 = -180.0;
@@ -27,12 +27,15 @@ impl Location {
             longitude,
         })
     }
+
     pub fn longitude(&self) -> f64 {
         self.longitude
     }
+
     pub fn latitude(&self) -> f64 {
         self.latitude
     }
+
     pub fn encode(&self) -> u64 {
         // Normalize to the range 0-2^26
         let normalized_latitude =
@@ -82,14 +85,14 @@ impl Location {
     }
 }
 
-impl RedisWrite for Location {
+impl RedisWrite for Coordinates {
     fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
         RespType::from(*self).write_to_buf(buf);
     }
 }
 
-impl From<Location> for RespType {
-    fn from(value: Location) -> Self {
+impl From<Coordinates> for RespType {
+    fn from(value: Coordinates) -> Self {
         RespType::Array(vec![
             RespType::bulk_string(value.longitude),
             RespType::bulk_string(value.latitude),
@@ -97,7 +100,7 @@ impl From<Location> for RespType {
     }
 }
 
-impl TryFrom<(f64, f64)> for Location {
+impl TryFrom<(f64, f64)> for Coordinates {
     type Error = LocationError;
     fn try_from(value: (f64, f64)) -> Result<Self, Self::Error> {
         Self::new(value.0, value.1)
@@ -158,7 +161,7 @@ mod tests {
         #[case] longitude: f64,
         #[case] expected_score: u64,
     ) {
-        let actual_score = Location::new(latitude, longitude).unwrap().encode();
+        let actual_score = Coordinates::new(latitude, longitude).unwrap().encode();
         assert_eq!(actual_score, expected_score, "Failed {name}")
     }
 }
