@@ -1,3 +1,4 @@
+mod account;
 mod command;
 mod connection;
 mod context;

@@ -14,6 +14,7 @@ use tokio_util::codec::FramedRead;
 
 use crate::{
     ArcLock,
+    account::Account,
     command::handle_command,
     context::{Config, Context},
     database::RedisDatabase,
@@ -56,6 +57,7 @@ impl Connection {
             master_conn,
             get_ack: Arc::new(RwLock::new(false)),
             config,
+            account: Arc::new(RwLock::new(Account::default())),
         };
         let mut reader = self.reader.clone().write_owned().await;
         tokio::spawn(async move {

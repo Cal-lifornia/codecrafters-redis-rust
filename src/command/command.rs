@@ -6,8 +6,8 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     command::{
-        Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Geodist, Geopos, Geosearch, Get, Incr, Info,
-        Keys, LLen, Lpop, Lpush, Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush, Set,
+        Acl, Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Geodist, Geopos, Geosearch, Get, Incr,
+        Info, Keys, LLen, Lpop, Lpush, Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush, Set,
         Subscribe, TypeCmd, Unsubscribe, Wait, Xadd, Xrange, Xread, Zadd, Zcard, Zrange, Zrank,
         Zrem, Zscore,
     },
@@ -116,6 +116,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"geopos" => Ok(Box::new(Geopos::parse_stream(stream)?)),
         b"geodist" => Ok(Box::new(Geodist::parse_stream(stream)?)),
         b"geosearch" => Ok(Box::new(Geosearch::parse_stream(stream)?)),
+        b"acl" => Ok(Box::new(Acl::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
