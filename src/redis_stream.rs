@@ -6,6 +6,7 @@ use hashbrown::HashMap;
 use indexmap::IndexMap;
 
 use crate::{
+    Pair,
     id::{Id, WildcardID},
     resp::RespType,
 };
@@ -270,5 +271,13 @@ where
             index.insert(key, value);
         }
         Ok(index)
+    }
+}
+
+impl<L: ParseStream, R: ParseStream> ParseStream for Pair<L, R> {
+    fn parse_stream(stream: &mut RedisStream) -> Result<Self, StreamParseError> {
+        let left = L::parse_stream(stream)?;
+        let right = R::parse_stream(stream)?;
+        Ok(Self { left, right })
     }
 }

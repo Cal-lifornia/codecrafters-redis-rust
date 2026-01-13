@@ -1,3 +1,5 @@
+use crate::resp::{RedisWrite, RespType};
+
 #[derive(Clone, Copy)]
 pub struct Location {
     latitude: f64,
@@ -77,6 +79,21 @@ impl Location {
         let grid_longitude_number = compact_int64_to_int32(y);
 
         Self::convert_grid_numbers_to_coordinates(grid_latitude_number, grid_longitude_number)
+    }
+}
+
+impl RedisWrite for Location {
+    fn write_to_buf(&self, buf: &mut bytes::BytesMut) {
+        RespType::from(*self).write_to_buf(buf);
+    }
+}
+
+impl From<Location> for RespType {
+    fn from(value: Location) -> Self {
+        RespType::Array(vec![
+            RespType::bulk_string(value.longitude),
+            RespType::bulk_string(value.latitude),
+        ])
     }
 }
 

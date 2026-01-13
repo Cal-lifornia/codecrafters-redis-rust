@@ -24,7 +24,7 @@ impl AsyncCommand for Zadd {
     ) -> Result<(), crate::server::RedisError> {
         let idx = ctx
             .db
-            .insert_sorted_set(self.key.clone(), self.member.clone(), self.score)
+            .insert_set_member(self.key.clone(), self.member.clone(), self.score)
             .await;
         RespType::Integer(idx as i64).write_to_buf(buf);
         Ok(())
