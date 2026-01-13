@@ -24,6 +24,14 @@ impl AsyncCommand for Acl {
             b"whoami" => {
                 RespType::bulk_string(ctx.account.read().await.username.clone()).write_to_buf(buf);
             }
+            b"getuser" => {
+                let flags = &ctx.account.read().await.flags;
+                RespType::Array(vec![
+                    RespType::bulk_string("flags"),
+                    RespType::from(flags.iter()),
+                ])
+                .write_to_buf(buf);
+            }
             _ => {
                 return Err(crate::server::RedisError::Other(
                     "invalid argument".to_string(),
