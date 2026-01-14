@@ -26,6 +26,13 @@ impl RespType {
             .collect();
         RespType::Array(out)
     }
+    pub fn simple_error(input: impl Display) -> Self {
+        let input = format!("{input}");
+        Self::SimpleError(Bytes::from(input.to_string()))
+    }
+    pub fn simple_string(input: impl Display) -> Self {
+        Self::SimpleString(Bytes::from(input.to_string()))
+    }
 }
 
 impl FromIterator<Bytes> for RespType {

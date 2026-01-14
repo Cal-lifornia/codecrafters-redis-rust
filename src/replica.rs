@@ -14,8 +14,8 @@ use tokio_util::codec::Encoder;
 
 use crate::{
     connection::Connection,
+    redis::RedisError,
     resp::{RedisWrite, RespCodec, RespType},
-    server::RedisError,
 };
 
 pub type RedisRole = Either<MainServer, Replica>;

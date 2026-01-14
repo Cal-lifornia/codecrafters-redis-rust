@@ -6,7 +6,7 @@ use either::Either;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
-    command::{AsyncCommand, Command, CommandError},
+    command::{AsyncCommand, CommandError},
     context::Context,
     rdb::EncodedRdbFile,
     redis_stream::StreamParseError,
@@ -25,7 +25,7 @@ impl AsyncCommand for Replconf {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut args = self.args.iter();
         match args.next() {
             Some(arg) => {
@@ -35,11 +35,7 @@ impl AsyncCommand for Replconf {
                             RespType::simple_string("OK").write_to_buf(buf);
                             Ok(())
                         } else {
-                            Err(CommandError::new(
-                                self.syntax(),
-                                StreamParseError::Expected("port".into(), "empty".into()).into(),
-                            )
-                            .into())
+                            Err(CommandError::IncorrectArgument("empty".to_string()).into())
                         }
                     }
                     b"capa" => {
@@ -48,21 +44,14 @@ impl AsyncCommand for Replconf {
                                 RespType::simple_string("OK").write_to_buf(buf);
                                 Ok(())
                             } else {
-                                Err(CommandError::new(
-                                    self.syntax(),
-                                    StreamParseError::Expected(
-                                        "psync2".into(),
-                                        String::from_utf8_lossy(next).into(),
-                                    )
-                                    .into(),
+                                Err(StreamParseError::Expected(
+                                    "psync2".into(),
+                                    String::from_utf8_lossy(next).into(),
                                 )
                                 .into())
                             }
                         } else {
-                            Err(
-                                CommandError::new(self.syntax(), StreamParseError::EmptyArg.into())
-                                    .into(),
-                            )
+                            Err(StreamParseError::EmptyArg.into())
                         }
                     }
                     b"getack" => {
@@ -104,7 +93,7 @@ impl AsyncCommand for Replconf {
                     _ => todo!(),
                 }
             }
-            None => Err(CommandError::new(self.syntax(), StreamParseError::EmptyArg.into()).into()),
+            None => Err(StreamParseError::EmptyArg.into()),
         }
     }
 }
@@ -123,7 +112,7 @@ impl AsyncCommand for Psync {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let info = ctx.replication.read().await;
         RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
         let rdb_file = EncodedRdbFile::open_file("static/empty.rdb").await?;
@@ -148,7 +137,7 @@ impl AsyncCommand for Wait {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Either::Left(ref main) = ctx.role {
             let len = main.replicas.read().await.len();
             if len == 0 || self.num_replicas == 0 {

@@ -11,6 +11,7 @@ use crate::command::macros::Symbol;
 use crate::command::{SymbolBlock, SymbolStreams};
 use crate::database::StreamQuery;
 use crate::id::Id;
+use crate::redis::RedisError;
 use crate::redis_stream::ParseStream;
 use crate::resp::NullArray;
 use crate::{
@@ -37,15 +38,13 @@ impl AsyncCommand for Xadd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
-        match ctx
+    ) -> Result<(), crate::redis::RedisError> {
+        let id = ctx
             .db
             .add_stream(self.key.clone(), self.id, self.values.clone())
             .await
-        {
-            Ok(id) => id.write_to_buf(buf),
-            Err(err) => RespType::simple_error(err.to_string()).write_to_buf(buf),
-        }
+            .map_err(|err| RedisError::Other(err.to_string()))?;
+        id.write_to_buf(buf);
         Ok(())
     }
 }
@@ -94,7 +93,7 @@ impl AsyncCommand for Xrange {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let start = if let Either::Right(start) = &self.start {
             Some(start)
         } else {
@@ -179,7 +178,7 @@ impl AsyncCommand for Xread {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Some(timeout) = self.timeout {
             let timeout = if timeout == 0 {
                 None

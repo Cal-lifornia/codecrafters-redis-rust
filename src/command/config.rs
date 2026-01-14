@@ -3,7 +3,7 @@ use bytes::Bytes;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
-    command::{AsyncCommand, SymbolGet},
+    command::{AsyncCommand, CommandError, SymbolGet},
     resp::{RedisWrite, RespType},
 };
 
@@ -21,7 +21,7 @@ impl AsyncCommand for ConfigGet {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         for arg in &self.args {
             match arg.to_ascii_lowercase().as_slice() {
                 b"dir" => {
@@ -37,8 +37,8 @@ impl AsyncCommand for ConfigGet {
                     .write_to_buf(buf);
                 }
                 _ => {
-                    eprintln!("WRONG INPUT FOR CONFIG: {arg:#?}");
-                    RespType::simple_error("incorrect argument").write_to_buf(buf);
+                    tracing::debug!("WRONG INPUT FOR CONFIG: {arg:#?}");
+                    return Err(CommandError::IncorrectArgument("incorrect argument".into()).into());
                 }
             }
         }

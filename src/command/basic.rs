@@ -26,7 +26,7 @@ impl AsyncCommand for Ping {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if ctx.db.channels.read().await.subscribed(&ctx.writer).await? {
             RespType::bulk_string_array(["pong", ""].iter()).write_to_buf(buf);
         } else {
@@ -48,7 +48,7 @@ impl AsyncCommand for Echo {
         &self,
         _ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         self.message.write_to_buf(buf);
         Ok(())
     }
@@ -66,7 +66,7 @@ impl AsyncCommand for TypeCmd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let value = ctx.db.db_type(&self.key).await;
         RespType::SimpleString(value).write_to_buf(buf);
         Ok(())
@@ -85,7 +85,7 @@ impl AsyncCommand for Info {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         match self.query.to_ascii_lowercase().as_slice() {
             b"replication" => {
                 let info = ctx.replication.read().await;
@@ -109,7 +109,7 @@ impl AsyncCommand for Keys {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if self.filter.ends_with(b"*") {
             ctx.db
                 .keys(&self.filter.slice(0..(self.filter.len() - 1)))

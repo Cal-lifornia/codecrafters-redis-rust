@@ -3,7 +3,7 @@ use bytes::BufMut;
 use redis_proc_macros::RedisCommand;
 
 use crate::{
-    command::AsyncCommand,
+    command::{AsyncCommand, CommandError},
     redis_stream::ParseStream,
     resp::{RedisWrite, RespType},
 };
@@ -26,7 +26,7 @@ impl AsyncCommand for Multi {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut transaction = ctx.transactions.write().await;
         if transaction.is_none() {
             *transaction = Some(vec![]);
@@ -53,7 +53,7 @@ impl AsyncCommand for Exec {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut transactions = ctx.transactions.write().await;
         if let Some(ref cmds) = *transactions {
             if cmds.is_empty() {
@@ -65,14 +65,16 @@ impl AsyncCommand for Exec {
                 buf.put_slice(len.to_string().as_bytes());
                 buf.put_slice(b"\r\n");
                 for cmd in cmds {
-                    cmd.run_command(ctx, buf).await?;
+                    if let Err(err) = cmd.run_command(ctx, buf).await {
+                        RespType::simple_error(err).write_to_buf(buf);
+                    }
                 }
             }
             *transactions = None;
+            Ok(())
         } else {
-            RespType::simple_error("EXEC without MULTI").write_to_buf(buf);
+            Err(CommandError::ExecWithoutMulti.into())
         }
-        Ok(())
     }
 }
 
@@ -94,14 +96,14 @@ impl AsyncCommand for Discard {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut transactions = ctx.transactions.write().await;
         if transactions.is_some() {
             *transactions = None;
             RespType::simple_string("OK").write_to_buf(buf);
+            Ok(())
         } else {
-            RespType::simple_error("DISCARD without MULTI").write_to_buf(buf);
+            Err(CommandError::DiscardWithoutMulti.into())
         }
-        Ok(())
     }
 }

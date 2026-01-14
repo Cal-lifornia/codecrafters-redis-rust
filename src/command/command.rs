@@ -6,15 +6,15 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     command::{
-        Acl, Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Geodist, Geopos, Geosearch, Get, Incr,
-        Info, Keys, LLen, Lpop, Lpush, Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush, Set,
-        Subscribe, TypeCmd, Unsubscribe, Wait, Xadd, Xrange, Xread, Zadd, Zcard, Zrange, Zrank,
-        Zrem, Zscore,
+        Acl, Auth, Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Geodist, Geopos, Geosearch, Get,
+        Incr, Info, Keys, LLen, Lpop, Lpush, Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush,
+        Set, Subscribe, TypeCmd, Unsubscribe, Wait, Xadd, Xrange, Xread, Zadd, Zcard, Zrange,
+        Zrank, Zrem, Zscore,
     },
     context::Context,
-    redis_stream::{ParseStream, RedisStream, StreamParseError},
+    redis::RedisError,
+    redis_stream::{ParseStream, RedisStream},
     resp::{RedisWrite, RespType},
-    server::RedisError,
 };
 
 // pub type CmdAction = Box<dyn Fn(&mut Context) -> BoxFuture<Result<(), std::io::Error>>>;
@@ -23,6 +23,7 @@ pub type RedisCommand = Box<dyn Command + Send + Sync>;
 
 pub trait Command: AsyncCommand {
     fn name(&self) -> &'static str;
+    #[allow(unused)]
     fn syntax(&self) -> &'static str;
     fn is_write_cmd(&self) -> bool;
 }
@@ -52,10 +53,7 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
             "subscribe" | "unsubscribe" | "psubscribe" | "punsubscribe" | "ping" | "quit"
         ) && ctx.db.channels.read().await.subscribed(&ctx.writer).await?
         {
-            RespType::simple_error(
-                format!("Can't execute '{}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context",
-                command.name())
-            ).write_to_buf(&mut buf);
+            return Err(CommandError::SubscibeInvalidCommand(command.name()).into());
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
@@ -117,6 +115,7 @@ pub fn get_command(value: Bytes, stream: &mut RedisStream) -> Result<RedisComman
         b"geodist" => Ok(Box::new(Geodist::parse_stream(stream)?)),
         b"geosearch" => Ok(Box::new(Geosearch::parse_stream(stream)?)),
         b"acl" => Ok(Box::new(Acl::parse_stream(stream)?)),
+        b"auth" => Ok(Box::new(Auth::parse_stream(stream)?)),
         _ => todo!(),
     }
 }
@@ -127,32 +126,21 @@ pub trait AsyncCommand {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError>;
-}
-
-#[derive(Debug)]
-pub struct CommandError {
-    syntax: &'static str,
-    kind: CommandErrorKind,
-}
-
-impl CommandError {
-    pub fn new(syntax: &'static str, kind: CommandErrorKind) -> Self {
-        Self { syntax, kind }
-    }
-}
-
-impl std::error::Error for CommandError {}
-
-impl std::fmt::Display for CommandError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "{}", self.kind)?;
-        write!(f, "SYNTAX: {}", self.syntax)
-    }
+    ) -> Result<(), crate::redis::RedisError>;
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CommandErrorKind {
+pub enum CommandError {
+    #[error("EXEC without MULTI")]
+    ExecWithoutMulti,
+    #[error("DISCARD without MULTI")]
+    DiscardWithoutMulti,
+    #[error("value is not an integer or out of range")]
+    IncrInvalid,
     #[error("{0}")]
-    ArgumentParse(#[from] StreamParseError),
+    IncorrectArgument(String),
+    #[error(
+        "Can't execute '{0}': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context"
+    )]
+    SubscibeInvalidCommand(&'static str),
 }

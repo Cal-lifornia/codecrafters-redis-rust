@@ -7,7 +7,7 @@ use redis_proc_macros::RedisCommand;
 use tokio::time::Instant;
 
 use crate::{
-    command::AsyncCommand,
+    command::{AsyncCommand, CommandError},
     redis_stream::{ParseStream, RedisStream, StreamParseError},
     resp::{NullBulkString, RedisWrite, RespType},
 };
@@ -23,7 +23,7 @@ impl AsyncCommand for Get {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         match ctx.db.get_string(&self.key).await {
             Some(val) => RespType::BulkString(val).write_to_buf(buf),
             None => NullBulkString.write_to_buf(buf),
@@ -81,7 +81,7 @@ impl AsyncCommand for Set {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut expires = None::<Either<Instant, SystemTime>>;
         let mut keepttl = false;
         if let Some(expiry) = &self.expiry {
@@ -127,12 +127,12 @@ impl AsyncCommand for Incr {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Some(val) = ctx.db.incr_value(self.key.clone()).await {
             RespType::Integer(val).write_to_buf(buf);
+            Ok(())
         } else {
-            RespType::simple_error("value is not an integer or out of range").write_to_buf(buf);
+            Err(CommandError::IncrInvalid.into())
         }
-        Ok(())
     }
 }

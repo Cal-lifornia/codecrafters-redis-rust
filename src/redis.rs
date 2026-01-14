@@ -4,6 +4,7 @@ use either::Either;
 use tokio::{net::TcpListener, sync::RwLock};
 
 use crate::{
+    account::AccountError,
     command::CommandError,
     connection::Connection,
     context::Config,
@@ -74,15 +75,23 @@ pub async fn run(
 #[derive(Debug, thiserror::Error)]
 pub enum RedisError {
     #[error("{0}")]
+    Account(#[from] AccountError),
+    #[error("ERR {0}")]
     Command(#[from] CommandError),
-    #[error("{0}")]
+    #[error("ERR {0}")]
     StreamParse(#[from] StreamParseError),
-    #[error("{0}")]
+    #[error("ERR {0}")]
     Io(#[from] std::io::Error),
-    #[error("{0}")]
+    #[error("ERR {0}")]
     Replica(#[from] ReplicaError),
-    #[error("{0}")]
+    #[error("ERR {0}")]
     Location(#[from] LocationError),
-    #[error("{0}")]
+    #[error("ERR {0}")]
     Other(String),
+}
+
+impl RedisError {
+    pub fn other(value: impl std::fmt::Display) -> Self {
+        Self::Other(value.to_string())
+    }
 }

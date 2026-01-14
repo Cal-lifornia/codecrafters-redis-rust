@@ -21,7 +21,7 @@ impl AsyncCommand for Zadd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let idx = ctx
             .db
             .insert_set_member(self.key.clone(), self.member.clone(), self.score)
@@ -44,7 +44,7 @@ impl AsyncCommand for Zrank {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Some(rank) = ctx.db.get_set_member_rank(&self.key, &self.member).await {
             RespType::Integer(rank as i64).write_to_buf(buf);
         } else {
@@ -68,7 +68,7 @@ impl AsyncCommand for Zrange {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let result = ctx
             .db
             .range_sorted_set(&self.key, self.start, self.end)
@@ -90,7 +90,7 @@ impl AsyncCommand for Zcard {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let len = ctx.db.count_sorted_set(&self.key).await;
         RespType::Integer(len as i64).write_to_buf(buf);
         Ok(())
@@ -109,7 +109,7 @@ impl AsyncCommand for Zscore {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Some(score) = ctx.db.get_set_member_score(&self.key, &self.member).await {
             RespType::BulkString(score.to_string().into()).write_to_buf(buf);
         } else {
@@ -132,7 +132,7 @@ impl AsyncCommand for Zrem {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let num = ctx.db.remove_set_member(&self.key, &self.member).await;
         RespType::Integer(num as i64).write_to_buf(buf);
         Ok(())

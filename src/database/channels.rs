@@ -4,7 +4,7 @@ use bytes::Bytes;
 use hashbrown::{HashMap, HashSet};
 
 use crate::context::ConnWriter;
-use crate::server::RedisError;
+use crate::redis::RedisError;
 
 // #[derive(Debug, Clone)]
 // struct ChannelSub {

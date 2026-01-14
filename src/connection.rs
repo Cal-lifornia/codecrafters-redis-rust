@@ -14,7 +14,7 @@ use tokio_util::codec::FramedRead;
 
 use crate::{
     ArcLock,
-    account::Account,
+    account::AccountDB,
     command::handle_command,
     context::{Config, Context},
     database::RedisDatabase,
@@ -57,7 +57,7 @@ impl Connection {
             master_conn,
             get_ack: Arc::new(RwLock::new(false)),
             config,
-            account: Arc::new(RwLock::new(Account::default())),
+            accounts: Arc::new(RwLock::new(AccountDB::default())),
         };
         let mut reader = self.reader.clone().write_owned().await;
         tokio::spawn(async move {
@@ -69,7 +69,7 @@ impl Connection {
                         Err(err) => {
                             let mut buf = BytesMut::new();
                             tracing::error!("ERROR {err}");
-                            RespType::simple_error(err.to_string()).write_to_buf(&mut buf);
+                            RespType::simple_error(err).write_to_buf(&mut buf);
                             let mut writer = ctx.writer.write().await;
                             writer.write_all(&buf).await.expect("valid read");
                             continue;
@@ -78,7 +78,7 @@ impl Connection {
                     if let Err(err) = handle_command(ctx.clone(), cmd).await {
                         let mut buf = BytesMut::new();
                         tracing::error!("ERROR {err}");
-                        RespType::simple_error(err.to_string()).write_to_buf(&mut buf);
+                        RespType::simple_error(err).write_to_buf(&mut buf);
                         let mut writer = ctx.writer.write().await;
                         writer.write_all(&buf).await.expect("valid read");
                         continue;

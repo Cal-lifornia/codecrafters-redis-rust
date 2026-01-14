@@ -23,7 +23,7 @@ impl AsyncCommand for Geoadd {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let location = Coordinates::new(self.latitude, self.longitude)?.encode();
         let num = ctx
             .db
@@ -46,7 +46,7 @@ impl AsyncCommand for Geopos {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let mut results = vec![];
         for member in &self.members {
             if let Some(geo_code) = ctx.db.get_set_member_score(&self.key, member).await {
@@ -74,7 +74,7 @@ impl AsyncCommand for Geodist {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         if let Some(distance) = ctx
             .db
             .get_distance(&self.key, &self.first, &self.second)
@@ -109,7 +109,7 @@ impl AsyncCommand for Geosearch {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let results = ctx
             .db
             .search_area(

@@ -7,6 +7,7 @@ use tokio::time::Instant;
 
 use crate::{
     command::AsyncCommand,
+    redis::RedisError,
     redis_stream::ParseStream,
     resp::{NullArray, NullBulkString, RedisWrite, RespType},
 };
@@ -24,7 +25,7 @@ impl AsyncCommand for Rpush {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let len = ctx.db.push_list(&self.key, self.values.clone()).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -45,7 +46,7 @@ impl AsyncCommand for Lrange {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let list = ctx.db.range_list(&self.key, self.start, self.stop).await;
         list.write_to_buf(buf);
         Ok(())
@@ -65,7 +66,7 @@ impl AsyncCommand for Lpush {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let len = ctx.db.prepend_list(&self.key, self.values.clone()).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -84,7 +85,7 @@ impl AsyncCommand for LLen {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let len = ctx.db.list_len(&self.key).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
@@ -104,7 +105,7 @@ impl AsyncCommand for Lpop {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let list = ctx.db.pop_list(&self.key, self.count).await;
         if !list.is_empty() {
             if self.count.is_some() {
@@ -145,7 +146,7 @@ impl AsyncCommand for Blpop {
         &self,
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
-    ) -> Result<(), crate::server::RedisError> {
+    ) -> Result<(), crate::redis::RedisError> {
         let timeout = if self.timeout == 0.0 {
             None
         } else {
@@ -169,8 +170,7 @@ impl AsyncCommand for Blpop {
                 match response {
                     Ok(value) => value.write_to_buf(buf),
                     Err(err) => {
-                        eprintln!("Ran into RECV error: {err:?}");
-                        RespType::simple_error(err.to_string()).write_to_buf(buf);
+                        return Err(RedisError::other(format!("Ran into RECV error: {err:?}")));
                     }
                 }
             }

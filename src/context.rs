@@ -5,7 +5,7 @@ use tokio::net::tcp::OwnedWriteHalf;
 
 use crate::{
     ArcLock,
-    account::Account,
+    account::AccountDB,
     command::RedisCommand,
     database::RedisDatabase,
     replica::{MainServer, Replica, ReplicationInfo},
@@ -23,7 +23,7 @@ pub struct Context {
     pub master_conn: bool,
     pub get_ack: ArcLock<bool>,
     pub config: ArcLock<Config>,
-    pub account: ArcLock<Account>,
+    pub accounts: ArcLock<AccountDB>,
 }
 
 #[derive(Default, Clone)]
