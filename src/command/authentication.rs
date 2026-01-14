@@ -92,11 +92,13 @@ impl AsyncCommand for Auth {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let username_str = String::from_utf8_lossy(&self.username);
-        ctx.app_data
+        let id = ctx
+            .app_data
             .accounts
             .write()
             .await
             .auth(&username_str.to_string(), Some(&self.password))?;
+        *ctx.signed_in.write().await = Some(id);
         RespType::simple_string("OK").write_to_buf(buf);
         Ok(())
     }

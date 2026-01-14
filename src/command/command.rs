@@ -61,7 +61,7 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
             .await?
         {
             return Err(CommandError::SubscibeInvalidCommand(command.name()).into());
-        } else if ctx.signed_in.read().await.is_none() {
+        } else if command_name.as_str() != "auth" && ctx.signed_in.read().await.is_none() {
             return Err(AccountError::NotAuthenticated.into());
         } else {
             command.run_command(&ctx, &mut buf).await?
