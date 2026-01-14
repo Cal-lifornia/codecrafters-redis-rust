@@ -26,13 +26,15 @@ impl AsyncCommand for ConfigGet {
             match arg.to_ascii_lowercase().as_slice() {
                 b"dir" => {
                     let res = ctx.config.read().await.dir.clone();
-                    RespType::from(["dir", res.unwrap_or("".into()).as_str()].iter())
+                    RespType::bulk_string_array(["dir", res.unwrap_or("".into()).as_str()].iter())
                         .write_to_buf(buf);
                 }
                 b"dbfilename" => {
                     let res = ctx.config.read().await.db_file_name.clone();
-                    RespType::from(["dbfilename", res.unwrap_or("".into()).as_str()].iter())
-                        .write_to_buf(buf);
+                    RespType::bulk_string_array(
+                        ["dbfilename", res.unwrap_or("".into()).as_str()].iter(),
+                    )
+                    .write_to_buf(buf);
                 }
                 _ => {
                     eprintln!("WRONG INPUT FOR CONFIG: {arg:#?}");

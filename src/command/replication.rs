@@ -163,7 +163,7 @@ impl AsyncCommand for Wait {
                 ctx.replication.write().await.waiting = Some(0);
             }
 
-            main.write_to_replicas(RespType::from("REPLCONF GETACK *".split(' ')))
+            main.write_to_replicas(RespType::bulk_string_array("REPLCONF GETACK *".split(' ')))
                 .await;
 
             let received = if let Ok(received) =

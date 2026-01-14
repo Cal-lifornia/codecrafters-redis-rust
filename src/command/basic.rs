@@ -28,7 +28,7 @@ impl AsyncCommand for Ping {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::server::RedisError> {
         if ctx.db.channels.read().await.subscribed(&ctx.writer).await? {
-            RespType::from(["pong", ""].iter()).write_to_buf(buf);
+            RespType::bulk_string_array(["pong", ""].iter()).write_to_buf(buf);
         } else {
             RespType::simple_string("PONG").write_to_buf(buf);
         }

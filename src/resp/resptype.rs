@@ -20,13 +20,17 @@ impl RespType {
     pub fn bulk_string<S: Display>(value: S) -> RespType {
         RespType::BulkString(Bytes::from(value.to_string()))
     }
-}
-
-impl<I: Iterator<Item = S>, S: Display> From<I> for RespType {
-    fn from(value: I) -> Self {
-        let out: Vec<RespType> = value
+    pub fn bulk_string_array<I: Iterator<Item = S>, S: Display>(iter: I) -> Self {
+        let out: Vec<RespType> = iter
             .map(|val| RespType::BulkString(Bytes::from(val.to_string())))
             .collect();
+        RespType::Array(out)
+    }
+}
+
+impl FromIterator<Bytes> for RespType {
+    fn from_iter<T: IntoIterator<Item = Bytes>>(iter: T) -> Self {
+        let out: Vec<RespType> = iter.into_iter().map(RespType::BulkString).collect();
         RespType::Array(out)
     }
 }

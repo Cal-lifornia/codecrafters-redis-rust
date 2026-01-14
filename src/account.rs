@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+use bytes::Bytes;
 use hashbrown::HashSet;
 
 #[derive(Debug, Clone)]
