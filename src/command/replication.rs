@@ -61,7 +61,7 @@ impl AsyncCommand for Replconf {
                         {
                             let mut get_ack = ctx.get_ack.write().await;
                             *get_ack = true;
-                            let offset = ctx.replication.read().await.offset;
+                            let offset = ctx.app_data.replication.read().await.offset;
                             let resp = RespType::Array(vec![
                                 RespType::BulkString(Bytes::from("REPLCONF")),
                                 RespType::BulkString(Bytes::from("ACK")),
@@ -73,13 +73,13 @@ impl AsyncCommand for Replconf {
                     }
                     b"ack" => {
                         if let Some(offset) = args.next()
-                            && ctx.role.is_left()
+                            && ctx.app_data.role.is_left()
                         {
                             let offset = String::from_utf8_lossy(offset).parse::<usize>().map_err(
                                 |err| std::io::Error::other(format!("require valid number: {err}")),
                             )?;
                             {
-                                let mut info = ctx.replication.write().await;
+                                let mut info = ctx.app_data.replication.write().await;
                                 if offset as i64 > info.offset {
                                     info.offset = offset as i64;
                                 }
@@ -113,11 +113,11 @@ impl AsyncCommand for Psync {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let info = ctx.replication.read().await;
+        let info = ctx.app_data.replication.read().await;
         RespType::simple_string(format!("FULLRESYNC {} 0", info.replication_id)).write_to_buf(buf);
         let rdb_file = EncodedRdbFile::open_file("static/empty.rdb").await?;
         rdb_file.write_to_buf(buf);
-        if let Either::Left(main) = &ctx.role {
+        if let Either::Left(main) = &ctx.app_data.role {
             main.replicas.write().await.push(ctx.writer.clone());
         }
         Ok(())
@@ -138,7 +138,7 @@ impl AsyncCommand for Wait {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        if let Either::Left(ref main) = ctx.role {
+        if let Either::Left(ref main) = ctx.app_data.role {
             let len = main.replicas.read().await.len();
             if len == 0 || self.num_replicas == 0 {
                 RespType::Integer(0).write_to_buf(buf);
@@ -149,7 +149,7 @@ impl AsyncCommand for Wait {
                 return Ok(());
             }
             {
-                ctx.replication.write().await.waiting = Some(0);
+                ctx.app_data.replication.write().await.waiting = Some(0);
             }
 
             main.write_to_replicas(RespType::bulk_string_array("REPLCONF GETACK *".split(' ')))
@@ -161,13 +161,13 @@ impl AsyncCommand for Wait {
             {
                 received
             } else {
-                ctx.replication.read().await.waiting.unwrap()
+                ctx.app_data.replication.read().await.waiting.unwrap()
             };
 
             RespType::Integer(received as i64).write_to_buf(buf);
             {
                 *main.need_offset.write().await = false;
-                ctx.replication.write().await.waiting = None;
+                ctx.app_data.replication.write().await.waiting = None;
             }
         }
         Ok(())
@@ -176,7 +176,7 @@ impl AsyncCommand for Wait {
 
 async fn process_wait(ctx: &Context, num_replicas: usize) -> usize {
     loop {
-        if let Some(returned) = ctx.replication.read().await.waiting {
+        if let Some(returned) = ctx.app_data.replication.read().await.waiting {
             if returned < num_replicas {
                 continue;
             } else {

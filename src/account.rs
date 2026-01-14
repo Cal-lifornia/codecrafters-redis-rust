@@ -1,67 +1,93 @@
-use std::{
-    fmt::Display,
-    hash::{BuildHasher, Hash},
-};
+use std::{fmt::Display, hash::Hash};
 
-use hashbrown::{DefaultHashBuilder, HashSet, HashTable};
+use hashbrown::HashSet;
+use indexmap::{IndexSet, set::MutableValues};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AccountError {
     #[error("WRONGPASS invalid username-password pair or user is disabled")]
     IncorrectDetails,
+    // #[error("TAKEN account already exists")]
+    // AccountExists,
+    #[error("NOAUTH Authentication required")]
+    NotAuthenticated,
 }
 
+// #[derive(Debug, Clone, Copy)]
+// pub struct AccountStatus {
+//     signed_in: bool,
+//     id: usize,
+// }
+
+// impl AccountStatus {
+//     pub fn new(signed_in: Option<usize>) -> Self {
+//         if let Some(id) = signed_in {
+//             Self {
+//                 signed_in: true,
+//                 id,
+//             }
+//         } else {
+//             Self {
+//                 signed_in: false,
+//                 id: usize::MAX,
+//             }
+//         }
+//     }
+//     pub fn signed_in(&self) -> bool {
+//         self.signed_in
+//     }
+//     pub fn sign_in(&mut self, id: usize) {
+//         self.signed_in = true;
+//         self.id = id;
+//     }
+// }
+
 pub struct AccountDB {
-    signed_in: String,
-    db: HashTable<Account>,
-    hasher: DefaultHashBuilder,
-    // pw_hash: Sha256,
+    accounts: IndexSet<Account>,
 }
 
 impl AccountDB {
-    pub fn insert(&mut self, account: Account) {
-        self.db
-            .insert_unique(self.hasher.hash_one(&account.username), account, |val| {
-                self.hasher.hash_one(&val.username)
-            });
+    // pub fn insert(&mut self, account: Account) -> Result<(), AccountError> {
+    //     if self.accounts.contains(&account) {
+    //         Err(AccountError::AccountExists)
+    //     } else {
+    //         self.accounts.insert(account);
+    //         Ok(())
+    //     }
+    // }
+    pub fn whoami(&self, id: usize) -> Option<&String> {
+        self.accounts.get_index(id).map(|acc| &acc.username)
     }
-    pub fn whoami(&self) -> &str {
-        &self.signed_in
-    }
-    pub fn get_signed_in(&self) -> Option<&Account> {
-        self.db.find(self.hasher.hash_one(&self.signed_in), |val| {
-            val.username == self.signed_in
-        })
+    pub fn get_account(&self, id: usize) -> Option<&Account> {
+        self.accounts.get_index(id)
     }
     pub fn auth(
-        &mut self,
+        &self,
         username: &String,
-        password: impl AsRef<[u8]>,
-    ) -> Result<(), AccountError> {
-        let hashed_pass = Self::hash_pass(password);
-        dbg!(&hashed_pass);
-        if let Some(account) = self.db.find(self.hasher.hash_one(username), |val| {
-            if &val.username == username {
-                if val.flags.contains(&AccountFlag::NoPass) {
-                    true
+        password: Option<impl AsRef<[u8]>>,
+    ) -> Result<usize, AccountError> {
+        if let Some((idx, account)) = self.accounts.get_full(username) {
+            if let Some(password) = password {
+                let hashed_pass = Self::hash_pass(password);
+                if !account.flags.contains(&AccountFlag::NoPass)
+                    && account.passwords.contains(&hashed_pass)
+                {
+                    Ok(idx)
                 } else {
-                    tracing::debug!("FOUND ACCOUNT");
-                    val.passwords.contains(&hashed_pass)
+                    Err(AccountError::IncorrectDetails)
                 }
+            } else if account.flags.contains(&AccountFlag::NoPass) {
+                Ok(idx)
             } else {
-                false
+                Err(AccountError::IncorrectDetails)
             }
-        }) {
-            self.signed_in = account.username.clone();
-            Ok(())
         } else {
             Err(AccountError::IncorrectDetails)
         }
     }
-    pub fn get_mut(&mut self, username: String) -> Option<&mut Account> {
-        let hash = self.hasher.hash_one(&username);
-        self.db.find_mut(hash, |val| val.username == username)
+    pub fn get_mut(&mut self, username: &String) -> Option<&mut Account> {
+        self.accounts.get_full_mut2(username).map(|(_, val)| val)
     }
     pub fn hash_pass(password: impl AsRef<[u8]>) -> String {
         let hashed_pass = Sha256::digest(password);
@@ -71,15 +97,9 @@ impl AccountDB {
 
 impl Default for AccountDB {
     fn default() -> Self {
-        let db = HashTable::new();
-        let mut out = Self {
-            signed_in: "default".to_string(),
-            db,
-            hasher: DefaultHashBuilder::default(),
-        };
-        let default_account = Account::default();
-        out.insert(default_account.clone());
-        out
+        Self {
+            accounts: IndexSet::from([Account::default()]),
+        }
     }
 }
 
@@ -97,6 +117,32 @@ impl Default for Account {
             flags: HashSet::from([AccountFlag::NoPass]),
             passwords: vec![],
         }
+    }
+}
+
+impl Eq for Account {}
+
+impl PartialEq for Account {
+    fn eq(&self, other: &Self) -> bool {
+        self.username == other.username
+    }
+}
+
+impl Hash for Account {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.username.hash(state);
+    }
+}
+
+// impl hashbrown::Equivalent<String> for Account {
+//     fn equivalent(&self, key: &String) -> bool {
+//         &self.username == key
+//     }
+// }
+
+impl hashbrown::Equivalent<Account> for String {
+    fn equivalent(&self, key: &Account) -> bool {
+        self == &key.username
     }
 }
 

@@ -21,7 +21,7 @@ impl AsyncCommand for Subscribe {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let mut channels = ctx.db.channels.write().await;
+        let mut channels = ctx.app_data.db.channels.write().await;
         let num = channels
             .subscribe_to_channel(self.channel.clone(), ctx.writer.clone())
             .await?;
@@ -51,6 +51,7 @@ impl AsyncCommand for Publish {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let writers = ctx
+            .app_data
             .db
             .channels
             .read()
@@ -97,6 +98,7 @@ impl AsyncCommand for Unsubscribe {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let num = ctx
+            .app_data
             .db
             .channels
             .write()

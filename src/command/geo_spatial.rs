@@ -26,6 +26,7 @@ impl AsyncCommand for Geoadd {
     ) -> Result<(), crate::redis::RedisError> {
         let location = Coordinates::new(self.latitude, self.longitude)?.encode();
         let num = ctx
+            .app_data
             .db
             .insert_set_member(self.key.clone(), self.member.clone(), location as f64)
             .await;
@@ -49,7 +50,12 @@ impl AsyncCommand for Geopos {
     ) -> Result<(), crate::redis::RedisError> {
         let mut results = vec![];
         for member in &self.members {
-            if let Some(geo_code) = ctx.db.get_set_member_score(&self.key, member).await {
+            if let Some(geo_code) = ctx
+                .app_data
+                .db
+                .get_set_member_score(&self.key, member)
+                .await
+            {
                 results.push(RespType::from(Coordinates::decode(geo_code as u64)));
             } else {
                 results.push(RespType::NullArray);
@@ -76,6 +82,7 @@ impl AsyncCommand for Geodist {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         if let Some(distance) = ctx
+            .app_data
             .db
             .get_distance(&self.key, &self.first, &self.second)
             .await
@@ -111,6 +118,7 @@ impl AsyncCommand for Geosearch {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let results = ctx
+            .app_data
             .db
             .search_area(
                 &self.key,

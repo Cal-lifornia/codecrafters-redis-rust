@@ -13,12 +13,8 @@ use tokio_stream::StreamExt;
 use tokio_util::codec::FramedRead;
 
 use crate::{
-    ArcLock,
-    account::AccountDB,
     command::handle_command,
-    context::{Config, Context},
-    database::RedisDatabase,
-    replica::{RedisRole, ReplicationInfo},
+    context::Context,
     resp::{RedisWrite, RespCodec, RespType},
 };
 
@@ -40,24 +36,26 @@ impl Connection {
             writer: Arc::new(RwLock::new(writer)),
         }
     }
-    pub async fn handle(
-        &self,
-        db: Arc<RedisDatabase>,
-        replication: Arc<RwLock<ReplicationInfo>>,
-        role: RedisRole,
-        master_conn: bool,
-        config: ArcLock<Config>,
-    ) {
+    pub async fn handle(&self, master_conn: bool, app_data: crate::context::AppData) {
+        let signed_in = if master_conn {
+            Some(0)
+        } else {
+            let accounts = app_data.accounts.read().await;
+            match accounts.auth(&"default".to_string(), None::<&[u8]>) {
+                Ok(id) => Some(id),
+                Err(err) => {
+                    tracing::info!("invalid signin to default: {err}");
+                    None
+                }
+            }
+        };
         let ctx = Context {
-            db,
             writer: self.writer.clone(),
             transactions: Arc::new(RwLock::new(None)),
-            replication,
-            role,
+            signed_in: Arc::new(RwLock::new(signed_in)),
             master_conn,
             get_ack: Arc::new(RwLock::new(false)),
-            config,
-            accounts: Arc::new(RwLock::new(AccountDB::default())),
+            app_data,
         };
         let mut reader = self.reader.clone().write_owned().await;
         tokio::spawn(async move {

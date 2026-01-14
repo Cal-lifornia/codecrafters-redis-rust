@@ -25,10 +25,22 @@ impl AsyncCommand for Acl {
         if let Some(first) = args_iter.next() {
             match first.to_ascii_lowercase().as_slice() {
                 b"whoami" => {
-                    RespType::bulk_string(ctx.accounts.read().await.whoami()).write_to_buf(buf);
+                    if let Some(id) = *ctx.signed_in.read().await {
+                        RespType::bulk_string(
+                            ctx.app_data
+                                .accounts
+                                .read()
+                                .await
+                                .whoami(id)
+                                .unwrap_or(&"".to_string()),
+                        )
+                        .write_to_buf(buf);
+                    }
                 }
                 b"getuser" => {
-                    if let Some(account) = &ctx.accounts.read().await.get_signed_in() {
+                    if let Some(id) = *ctx.signed_in.read().await
+                        && let Some(account) = &ctx.app_data.accounts.read().await.get_account(id)
+                    {
                         RespType::Array(vec![
                             RespType::bulk_string("flags"),
                             RespType::bulk_string_array(account.flags.iter()),
@@ -40,9 +52,9 @@ impl AsyncCommand for Acl {
                 }
                 b"setuser" => {
                     if let Some(username) = args_iter.next() {
-                        let mut accounts = ctx.accounts.write().await;
+                        let mut accounts = ctx.app_data.accounts.write().await;
                         let username_str = String::from_utf8_lossy(username);
-                        if let Some(account) = accounts.get_mut(username_str.to_string())
+                        if let Some(account) = accounts.get_mut(&username_str.to_string())
                             && let Some(password) = args_iter.next()
                             && password.starts_with(b">")
                         {
@@ -80,10 +92,11 @@ impl AsyncCommand for Auth {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let username_str = String::from_utf8_lossy(&self.username);
-        ctx.accounts
+        ctx.app_data
+            .accounts
             .write()
             .await
-            .auth(&username_str.to_string(), &self.password)?;
+            .auth(&username_str.to_string(), Some(&self.password))?;
         RespType::simple_string("OK").write_to_buf(buf);
         Ok(())
     }

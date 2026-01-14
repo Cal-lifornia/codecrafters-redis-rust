@@ -27,7 +27,15 @@ impl AsyncCommand for Ping {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        if ctx.db.channels.read().await.subscribed(&ctx.writer).await? {
+        if ctx
+            .app_data
+            .db
+            .channels
+            .read()
+            .await
+            .subscribed(&ctx.writer)
+            .await?
+        {
             RespType::bulk_string_array(["pong", ""].iter()).write_to_buf(buf);
         } else {
             RespType::simple_string("PONG").write_to_buf(buf);
@@ -67,7 +75,7 @@ impl AsyncCommand for TypeCmd {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let value = ctx.db.db_type(&self.key).await;
+        let value = ctx.app_data.db.db_type(&self.key).await;
         RespType::SimpleString(value).write_to_buf(buf);
         Ok(())
     }
@@ -88,7 +96,7 @@ impl AsyncCommand for Info {
     ) -> Result<(), crate::redis::RedisError> {
         match self.query.to_ascii_lowercase().as_slice() {
             b"replication" => {
-                let info = ctx.replication.read().await;
+                let info = ctx.app_data.replication.read().await;
                 info.write_to_buf(buf);
             }
             _ => todo!(),
@@ -111,12 +119,13 @@ impl AsyncCommand for Keys {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         if self.filter.ends_with(b"*") {
-            ctx.db
+            ctx.app_data
+                .db
                 .keys(&self.filter.slice(0..(self.filter.len() - 1)))
                 .await
                 .write_to_buf(buf);
         } else {
-            ctx.db.keys(&self.filter).await.write_to_buf(buf);
+            ctx.app_data.db.keys(&self.filter).await.write_to_buf(buf);
         }
         Ok(())
     }

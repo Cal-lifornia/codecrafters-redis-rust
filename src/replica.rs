@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
-use either::Either;
 use rand::{Rng, distr::Alphanumeric};
 use tokio::{
     io::AsyncWriteExt,
@@ -17,8 +16,6 @@ use crate::{
     redis::RedisError,
     resp::{RedisWrite, RespCodec, RespType},
 };
-
-pub type RedisRole = Either<MainServer, Replica>;
 
 pub struct ReplicationInfo {
     pub role: String,

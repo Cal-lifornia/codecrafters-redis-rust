@@ -4,10 +4,10 @@ use either::Either;
 use tokio::{net::TcpListener, sync::RwLock};
 
 use crate::{
-    account::AccountError,
+    account::{AccountDB, AccountError},
     command::CommandError,
     connection::Connection,
-    context::Config,
+    context::{AppData, Config},
     database::{LocationError, RedisDatabase},
     rdb::RdbFile,
     redis_stream::StreamParseError,
@@ -43,32 +43,20 @@ pub async fn run(
         replica.handshake(&mut info).await?;
     }
     let replication = Arc::new(RwLock::new(info));
-    if let Either::Right(ref replica) = role {
-        replica
-            .conn
-            .handle(
-                db.clone(),
-                replication.clone(),
-                role.clone(),
-                true,
-                config.clone(),
-            )
-            .await;
+    let app_data = AppData {
+        db,
+        accounts: Arc::new(RwLock::new(AccountDB::default())),
+        config,
+        replication,
+        role: role.clone(),
+    };
+    if let Either::Right(ref replica) = app_data.role {
+        replica.conn.handle(true, app_data.clone()).await;
     }
     loop {
-        let db_clone = db.clone();
-        let config = config.clone();
         let (socket, _) = listener.accept().await?;
         let connection = Connection::new(socket);
-        connection
-            .handle(
-                db_clone.clone(),
-                replication.clone(),
-                role.clone(),
-                false,
-                config,
-            )
-            .await;
+        connection.handle(false, app_data.clone()).await;
     }
 }
 

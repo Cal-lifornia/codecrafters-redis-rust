@@ -23,6 +23,7 @@ impl AsyncCommand for Zadd {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let idx = ctx
+            .app_data
             .db
             .insert_set_member(self.key.clone(), self.member.clone(), self.score)
             .await;
@@ -45,7 +46,12 @@ impl AsyncCommand for Zrank {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        if let Some(rank) = ctx.db.get_set_member_rank(&self.key, &self.member).await {
+        if let Some(rank) = ctx
+            .app_data
+            .db
+            .get_set_member_rank(&self.key, &self.member)
+            .await
+        {
             RespType::Integer(rank as i64).write_to_buf(buf);
         } else {
             NullBulkString.write_to_buf(buf);
@@ -70,6 +76,7 @@ impl AsyncCommand for Zrange {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let result = ctx
+            .app_data
             .db
             .range_sorted_set(&self.key, self.start, self.end)
             .await;
@@ -91,7 +98,7 @@ impl AsyncCommand for Zcard {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let len = ctx.db.count_sorted_set(&self.key).await;
+        let len = ctx.app_data.db.count_sorted_set(&self.key).await;
         RespType::Integer(len as i64).write_to_buf(buf);
         Ok(())
     }
@@ -110,7 +117,12 @@ impl AsyncCommand for Zscore {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        if let Some(score) = ctx.db.get_set_member_score(&self.key, &self.member).await {
+        if let Some(score) = ctx
+            .app_data
+            .db
+            .get_set_member_score(&self.key, &self.member)
+            .await
+        {
             RespType::BulkString(score.to_string().into()).write_to_buf(buf);
         } else {
             NullBulkString.write_to_buf(buf);
@@ -133,7 +145,11 @@ impl AsyncCommand for Zrem {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let num = ctx.db.remove_set_member(&self.key, &self.member).await;
+        let num = ctx
+            .app_data
+            .db
+            .remove_set_member(&self.key, &self.member)
+            .await;
         RespType::Integer(num as i64).write_to_buf(buf);
         Ok(())
     }

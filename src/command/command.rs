@@ -5,6 +5,7 @@ use either::Either;
 use tokio::io::AsyncWriteExt;
 
 use crate::{
+    account::AccountError,
     command::{
         Acl, Auth, Blpop, ConfigGet, Discard, Echo, Exec, Geoadd, Geodist, Geopos, Geosearch, Get,
         Incr, Info, Keys, LLen, Lpop, Lpush, Lrange, Multi, Ping, Psync, Publish, Replconf, Rpush,
@@ -32,28 +33,36 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
     let mut buf = BytesMut::new();
     if let Some(next) = redis_stream.next() {
         let command = get_command(next, &mut redis_stream)?;
+        let command_name = command.name().to_lowercase();
         let write = command.is_write_cmd();
-        if let Either::Left(main) = &ctx.role
+        if let Either::Left(main) = &ctx.app_data.role
             && write
         {
             *main.need_offset.write().await = true;
             main.write_to_replicas(input.clone()).await;
         }
-        if (!matches!(
-            command.name().to_lowercase().as_str(),
-            "multi" | "exec" | "discard"
-        )) && let Some(list) = ctx.transactions.write().await.as_mut()
+        if (!matches!(command_name.as_str(), "multi" | "exec" | "discard"))
+            && let Some(list) = ctx.transactions.write().await.as_mut()
         {
             RespType::simple_string("QUEUED").write_to_buf(&mut buf);
             list.push(command);
         }
         // If the writer is in subscribe mode check the command that is run
         else if !matches!(
-            command.name().to_lowercase().as_str(),
+            command_name.as_str(),
             "subscribe" | "unsubscribe" | "psubscribe" | "punsubscribe" | "ping" | "quit"
-        ) && ctx.db.channels.read().await.subscribed(&ctx.writer).await?
+        ) && ctx
+            .app_data
+            .db
+            .channels
+            .read()
+            .await
+            .subscribed(&ctx.writer)
+            .await?
         {
             return Err(CommandError::SubscibeInvalidCommand(command.name()).into());
+        } else if ctx.signed_in.read().await.is_none() {
+            return Err(AccountError::NotAuthenticated.into());
         } else {
             command.run_command(&ctx, &mut buf).await?
         }
@@ -64,8 +73,8 @@ pub async fn handle_command(ctx: Context, input: RespType) -> Result<(), RedisEr
             let mut writer = ctx.writer.write().await;
             writer.write_all(&buf).await.expect("valid read");
         }
-        if ctx.role.is_right() {
-            let mut info = ctx.replication.write().await;
+        if ctx.app_data.role.is_right() {
+            let mut info = ctx.app_data.replication.write().await;
             info.offset += input.byte_size() as i64;
         }
     } else {

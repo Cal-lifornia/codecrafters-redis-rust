@@ -25,12 +25,12 @@ impl AsyncCommand for ConfigGet {
         for arg in &self.args {
             match arg.to_ascii_lowercase().as_slice() {
                 b"dir" => {
-                    let res = ctx.config.read().await.dir.clone();
+                    let res = ctx.app_data.config.read().await.dir.clone();
                     RespType::bulk_string_array(["dir", res.unwrap_or("".into()).as_str()].iter())
                         .write_to_buf(buf);
                 }
                 b"dbfilename" => {
-                    let res = ctx.config.read().await.db_file_name.clone();
+                    let res = ctx.app_data.config.read().await.db_file_name.clone();
                     RespType::bulk_string_array(
                         ["dbfilename", res.unwrap_or("".into()).as_str()].iter(),
                     )

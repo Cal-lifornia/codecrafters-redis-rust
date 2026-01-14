@@ -15,15 +15,21 @@ pub type ConnWriter = ArcLock<OwnedWriteHalf>;
 
 #[derive(Clone)]
 pub struct Context {
-    pub db: Arc<RedisDatabase>,
     pub writer: ArcLock<OwnedWriteHalf>,
     pub transactions: ArcLock<Option<Vec<RedisCommand>>>,
-    pub replication: ArcLock<ReplicationInfo>,
-    pub role: Either<MainServer, Replica>,
+    pub signed_in: ArcLock<Option<usize>>,
     pub master_conn: bool,
     pub get_ack: ArcLock<bool>,
-    pub config: ArcLock<Config>,
+    pub app_data: AppData,
+}
+
+#[derive(Clone)]
+pub struct AppData {
+    pub db: Arc<RedisDatabase>,
     pub accounts: ArcLock<AccountDB>,
+    pub config: ArcLock<Config>,
+    pub replication: ArcLock<ReplicationInfo>,
+    pub role: Either<MainServer, Replica>,
 }
 
 #[derive(Default, Clone)]

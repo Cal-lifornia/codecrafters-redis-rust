@@ -26,7 +26,11 @@ impl AsyncCommand for Rpush {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let len = ctx.db.push_list(&self.key, self.values.clone()).await;
+        let len = ctx
+            .app_data
+            .db
+            .push_list(&self.key, self.values.clone())
+            .await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
     }
@@ -47,7 +51,11 @@ impl AsyncCommand for Lrange {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let list = ctx.db.range_list(&self.key, self.start, self.stop).await;
+        let list = ctx
+            .app_data
+            .db
+            .range_list(&self.key, self.start, self.stop)
+            .await;
         list.write_to_buf(buf);
         Ok(())
     }
@@ -67,7 +75,11 @@ impl AsyncCommand for Lpush {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let len = ctx.db.prepend_list(&self.key, self.values.clone()).await;
+        let len = ctx
+            .app_data
+            .db
+            .prepend_list(&self.key, self.values.clone())
+            .await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
     }
@@ -86,7 +98,7 @@ impl AsyncCommand for LLen {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let len = ctx.db.list_len(&self.key).await;
+        let len = ctx.app_data.db.list_len(&self.key).await;
         RespType::Integer(len).write_to_buf(buf);
         Ok(())
     }
@@ -106,7 +118,7 @@ impl AsyncCommand for Lpop {
         ctx: &crate::context::Context,
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
-        let list = ctx.db.pop_list(&self.key, self.count).await;
+        let list = ctx.app_data.db.pop_list(&self.key, self.count).await;
         if !list.is_empty() {
             if self.count.is_some() {
                 list.write_to_buf(buf);
@@ -152,7 +164,12 @@ impl AsyncCommand for Blpop {
         } else {
             Some(Instant::now() + Duration::from_secs_f64(self.timeout))
         };
-        match ctx.db.blocking_pop_list(&self.keys[0], timeout).await {
+        match ctx
+            .app_data
+            .db
+            .blocking_pop_list(&self.keys[0], timeout)
+            .await
+        {
             either::Either::Left(blpop) => blpop.write_to_buf(buf),
             either::Either::Right(receiver) => {
                 let response = if let Some(timeout) = timeout {

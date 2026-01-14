@@ -40,6 +40,7 @@ impl AsyncCommand for Xadd {
         buf: &mut bytes::BytesMut,
     ) -> Result<(), crate::redis::RedisError> {
         let id = ctx
+            .app_data
             .db
             .add_stream(self.key.clone(), self.id, self.values.clone())
             .await
@@ -104,7 +105,7 @@ impl AsyncCommand for Xrange {
         } else {
             None
         };
-        let values = ctx.db.range_stream(&self.key, start, end).await;
+        let values = ctx.app_data.db.range_stream(&self.key, start, end).await;
         if values.is_empty() {
             NullArray.write_to_buf(buf);
         } else {
@@ -191,7 +192,7 @@ impl AsyncCommand for Xread {
             } else {
                 let mut results = vec![];
                 for query in &self.queries {
-                    if let Some(res) = ctx.db.read_stream(query).await {
+                    if let Some(res) = ctx.app_data.db.read_stream(query).await {
                         results.push(res);
                     }
                 }
@@ -204,7 +205,7 @@ impl AsyncCommand for Xread {
         } else {
             let mut results = vec![];
             for query in &self.queries {
-                if let Some(res) = ctx.db.read_stream(query).await {
+                if let Some(res) = ctx.app_data.db.read_stream(query).await {
                     results.push(res);
                 }
             }
@@ -226,7 +227,11 @@ impl Xread {
         buf: &mut bytes::BytesMut,
         timeout: Option<Instant>,
     ) {
-        let mut receiver = ctx.db.block_read_stream(&self.queries, timeout).await;
+        let mut receiver = ctx
+            .app_data
+            .db
+            .block_read_stream(&self.queries, timeout)
+            .await;
         let result = if let Some(timeout) = timeout {
             match tokio::time::timeout_at(timeout, receiver.recv()).await {
                 Ok(result) => result,
